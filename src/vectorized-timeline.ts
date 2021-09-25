@@ -1,11 +1,13 @@
-import { VectorClock, compareVectorClocksAbsolutely, VectorClockRelation, compareVectorClocks } from "."
+import { VectorClock, compareVectorClocksAbsolutely, VectorClockRelation, compareVectorClocks, ExtensiveVectorClockRelation } from "."
 
 export class VectorizedTimeline<T> {
     private presenceEntry: VectorizedTimelineEntry<T>
+    private lastEntry: VectorizedTimelineEntry<T>
 
     constructor(
         presence: T,
-        timestamp: number,
+        originTimestamp: number,
+        localTimestamp: number,
         clock: VectorClock,
         clientId: string,
         private historyDuration: number,
@@ -13,7 +15,8 @@ export class VectorizedTimeline<T> {
     ) {
         this.presenceEntry = {
             clientId,
-            timestamp,
+            originTimestamp,
+            localTimestamp,
             clock,
             state: Object.freeze(presence),
             action: () => {
@@ -22,44 +25,45 @@ export class VectorizedTimeline<T> {
             futureHistoryEntry: undefined,
             pastHistoryEntry: undefined,
         }
+        this.lastEntry = this.presenceEntry
     }
 
-    private removeOldElements(currentTimestamp: number) {
-        let future = this.presenceEntry
-        let current = this.presenceEntry.pastHistoryEntry
-        while (current != null) {
-            if (currentTimestamp - current.timestamp > this.historyDuration) {
-                current.pastHistoryEntry = undefined
+    private removeOldElements(localTimestamp: number): void {
+        while(this.lastEntry.futureHistoryEntry != null) {
+            if(localTimestamp - this.lastEntry.futureHistoryEntry.localTimestamp < this.historyDuration) {
                 return
             }
-            future = current
-            current = current.pastHistoryEntry
+            this.lastEntry = this.lastEntry.futureHistoryEntry
+            this.lastEntry.pastHistoryEntry = undefined
         }
     }
 
-    add(clock: VectorClock, clientId: string, timestamp: number, action: (prev: T) => T, currentTimestamp: number = new Date().getTime()): void {
+    add(clock: VectorClock, clientId: string, originTimestamp: number, action: (prev: T) => T, localTimestamp: number = new Date().getTime()): void {
+        this.removeOldElements(localTimestamp)
         //find place to insert
         let searchEntry: VectorizedTimelineEntry<T> = this.presenceEntry
-        let lastRelation: VectorClockRelation | undefined
+        let lastRelation: ExtensiveVectorClockRelation
         while (
-            searchEntry != null &&
             (lastRelation = compareVectorClocksAbsolutely(
                 searchEntry.clientId,
                 searchEntry.clock,
-                searchEntry.timestamp,
+                searchEntry.originTimestamp,
                 clientId,
                 clock,
-                timestamp
-            )) === VectorClockRelation.AFTER
+                originTimestamp
+            )).absolute === VectorClockRelation.AFTER
         ) {
             if (searchEntry.pastHistoryEntry == null) {
                 //timeline does not contain old enough entries. can't add the action at the beginning of a timeline
-                console.warn(`event to old to insert: `, clock, clientId, timestamp, action, `current timeline starts with: `, searchEntry, ` we can't insert an event before the current start`)
+                console.error(`Possible client inconsistency: event to old to insert: `, clock, clientId, localTimestamp, action, `current timeline starts with: `, searchEntry, ` we can't insert an event before the current start`)
                 return
             }
             searchEntry = searchEntry.pastHistoryEntry
         }
-        if (lastRelation === VectorClockRelation.EQUAL) {
+        if (
+            lastRelation.partial === VectorClockRelation.EQUAL || //searchEntry and insert events are the same
+            lastRelation.partial === VectorClockRelation.AFTER //the searchEntry event has happend after the insert event => as out of order delivery is impossible this event must already be included in the current state
+        ) {
             //duplicate vector clock found
             return
         }
@@ -67,8 +71,9 @@ export class VectorizedTimeline<T> {
         //insert
         const entryFuture = searchEntry.futureHistoryEntry
         const entry: VectorizedTimelineEntry<T> = {
+            localTimestamp,
             clientId,
-            timestamp,
+            originTimestamp,
             action,
             clock,
             futureHistoryEntry: entryFuture,
@@ -92,7 +97,6 @@ export class VectorizedTimeline<T> {
             current = current.futureHistoryEntry
         }
 
-        this.removeOldElements(currentTimestamp)
         this.onChange(this.presenceEntry.state, this.presenceEntry)
     }
 }
@@ -111,7 +115,8 @@ export type VectorizedTimelineEntry<T> = {
     clientId: string
     state: T
     clock: VectorClock
-    timestamp: number
+    originTimestamp: number
+    localTimestamp: number
     action: (prev: T) => T
     futureHistoryEntry: VectorizedTimelineEntry<T> | undefined
     pastHistoryEntry: VectorizedTimelineEntry<T> | undefined

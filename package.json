@@ -1,7 +1,7 @@
 {
   "name": "co-vectorize",
   "version": "1.0.0",
-  "description": "",
+  "description": "globally consistent event ordering for decentralized distributed systems",
   "scripts": {
     "build": "tsc"
   },

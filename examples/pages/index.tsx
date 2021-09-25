@@ -66,7 +66,7 @@ export function Client({
     const [result, setResult] = useState(0)
     const timeline = useMemo(
         () =>
-            new VectorizedTimeline<number>(0, 0, {}, "server", 4000, (result, entry) => {
+            new VectorizedTimeline<number>(0, 0, new Date().getTime(), {}, "server", 4000, (result, entry) => {
                 setResult(result)
                 setVectorizedTimeline(entryToArray(entry))
             }),
@@ -133,14 +133,17 @@ export function Client({
                 </div>
             ))}
             <h2>Established Timeline</h2>
-            {vectorizedTimeline.map(({ clientId, action, clock, state, timestamp }, i) => (
+            {vectorizedTimeline.map(({ clientId, action, clock, state, originTimestamp, localTimestamp }, i) => (
                 <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
                     <span>{action.toString()}</span>
                     <span>{state}</span>
                     <span>Clock: {JSON.stringify(clock)}</span>
                     <span>Client Id: {clientId}</span>
                     <span>
-                        Timestamp: <Timestamp value={timestamp} />
+                        Origin Timestamp: <Timestamp value={originTimestamp} />
+                    </span>
+                    <span>
+                        Local Timestamp: <Timestamp value={localTimestamp} />
                     </span>
                 </div>
             ))}

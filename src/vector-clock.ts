@@ -16,6 +16,11 @@ export function vectorClockMax(target: VectorClock, by: VectorClock): void {
   })
 }
 
+export type ExtensiveVectorClockRelation = {
+    absolute: VectorClockRelation.AFTER | VectorClockRelation.BEFORE | VectorClockRelation.EQUAL,
+    partial: VectorClockRelation
+}
+
 /**
  * compare two vector clocks to determine a global consistent happend before relation
  * @param v1 vector clock 1
@@ -29,14 +34,20 @@ export function compareVectorClocksAbsolutely(
     v2ClientId: string,
     v2: VectorClock,
     timestampV2: number
-): VectorClockRelation.AFTER | VectorClockRelation.BEFORE | VectorClockRelation.EQUAL {
+): ExtensiveVectorClockRelation {
     const relation = compareVectorClocks(v1, v2)
     if (relation === VectorClockRelation.PARALLEL) {
-        return (timestampV1 === timestampV2 ? v1ClientId < v2ClientId : timestampV1 < timestampV2)
+        return {
+            partial: relation,
+            absolute: (timestampV1 === timestampV2 ? v1ClientId < v2ClientId : timestampV1 < timestampV2)
             ? VectorClockRelation.BEFORE
             : VectorClockRelation.AFTER
+        }
     } else {
-        return relation
+        return {
+            partial: relation,
+            absolute: relation
+        }
     }
 }
 
