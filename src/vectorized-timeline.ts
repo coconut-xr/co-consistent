@@ -22,19 +22,19 @@ export class VectorizedTimeline<T> {
             action: () => {
                 throw "beginning time step can't be executed"
             },
-            futureHistoryEntry: undefined,
-            pastHistoryEntry: undefined,
+            next: undefined,
+            prev: undefined,
         }
         this.lastEntry = this.presenceEntry
     }
 
     private removeOldElements(localTimestamp: number): void {
-        while(this.lastEntry.futureHistoryEntry != null) {
-            if(localTimestamp - this.lastEntry.futureHistoryEntry.localTimestamp < this.historyDuration) {
+        while(this.lastEntry.next != null) {
+            if(localTimestamp - this.lastEntry.next.localTimestamp < this.historyDuration) {
                 return
             }
-            this.lastEntry = this.lastEntry.futureHistoryEntry
-            this.lastEntry.pastHistoryEntry = undefined
+            this.lastEntry = this.lastEntry.next
+            this.lastEntry.prev = undefined
         }
     }
 
@@ -53,12 +53,12 @@ export class VectorizedTimeline<T> {
                 originTimestamp
             )).absolute === VectorClockRelation.AFTER
         ) {
-            if (searchEntry.pastHistoryEntry == null) {
+            if (searchEntry.prev == null) {
                 //timeline does not contain old enough entries. can't add the action at the beginning of a timeline
                 console.error(`Possible client inconsistency: event to old to insert: `, clock, clientId, localTimestamp, action, `current timeline starts with: `, searchEntry, ` we can't insert an event before the current start`)
                 return
             }
-            searchEntry = searchEntry.pastHistoryEntry
+            searchEntry = searchEntry.prev
         }
         if (
             lastRelation.partial === VectorClockRelation.EQUAL || //searchEntry and insert events are the same
@@ -69,20 +69,20 @@ export class VectorizedTimeline<T> {
         }
 
         //insert
-        const entryFuture = searchEntry.futureHistoryEntry
+        const next = searchEntry.next
         const entry: VectorizedTimelineEntry<T> = {
             localTimestamp,
             clientId,
             originTimestamp,
             action,
             clock,
-            futureHistoryEntry: entryFuture,
-            pastHistoryEntry: searchEntry,
+            next: next,
+            prev: searchEntry,
             state: Object.freeze(action(searchEntry.state)),
         }
-        searchEntry.futureHistoryEntry = entry
-        if (entryFuture != null) {
-            entryFuture.pastHistoryEntry = entry
+        searchEntry.next = entry
+        if (next != null) {
+            next.prev = entry
         }
 
         //set new head
@@ -91,22 +91,22 @@ export class VectorizedTimeline<T> {
         }
 
         //recalculate follow up values
-        let current: VectorizedTimelineEntry<T> | undefined = entryFuture
+        let current: VectorizedTimelineEntry<T> | undefined = next
         while (current != null) {
-            current.state = Object.freeze(current.action(current.pastHistoryEntry!.state))
-            current = current.futureHistoryEntry
+            current.state = Object.freeze(current.action(current.prev!.state))
+            current = current.next
         }
 
         this.onChange(this.presenceEntry.state, this.presenceEntry)
     }
 }
 
-export function entryToArray<T>(entry: VectorizedTimelineEntry<T>): Array<VectorizedTimelineEntry<T>> {
+export function vectorizedTimelineEntryToArray<T>(entry: VectorizedTimelineEntry<T>): Array<VectorizedTimelineEntry<T>> {
     const result: Array<VectorizedTimelineEntry<T>> = []
     let current: VectorizedTimelineEntry<T> | undefined = entry
     while (current != null) {
         result.unshift(current)
-        current = current.pastHistoryEntry
+        current = current.prev
     }
     return result
 }
@@ -118,6 +118,6 @@ export type VectorizedTimelineEntry<T> = {
     originTimestamp: number
     localTimestamp: number
     action: (prev: T) => T
-    futureHistoryEntry: VectorizedTimelineEntry<T> | undefined
-    pastHistoryEntry: VectorizedTimelineEntry<T> | undefined
+    next: VectorizedTimelineEntry<T> | undefined
+    prev: VectorizedTimelineEntry<T> | undefined
 }

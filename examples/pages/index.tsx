@@ -5,7 +5,7 @@ import {
     vectorClockMax,
     VectorizedTimeline,
     VectorizedTimelineEntry,
-    entryToArray,
+    vectorizedTimelineEntryToArray
 } from "co-vectorize"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
@@ -68,7 +68,7 @@ export function Client({
         () =>
             new VectorizedTimeline<number>(0, 0, new Date().getTime(), {}, "server", 4000, (result, entry) => {
                 setResult(result)
-                setVectorizedTimeline(entryToArray(entry))
+                setVectorizedTimeline(vectorizedTimelineEntryToArray(entry))
             }),
         [setResult, setVectorizedTimeline]
     )
