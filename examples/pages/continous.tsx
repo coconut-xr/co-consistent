@@ -1,7 +1,7 @@
-import { ContinousState, ConsistentTimeline, getStateAt, StateType, ContisistentTimelineEntry } from "co-nsistent";
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { ConsistentTimeline, getStateAt, StateType, ContisistentTimelineEntry } from "co-nsistent";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Observable, Subject } from "rxjs";
-import { delay, filter } from "rxjs/operators"
+import { delay, filter, tap } from "rxjs/operators"
 
 export default function Continous() {
     const subject = useMemo(() => new Subject<Event>(), [])
@@ -13,9 +13,11 @@ export default function Continous() {
                     <Client
                         key={i}
                         clientId={clientId}
+                        timeOffset={Math.floor(Math.random() * 2000)}
+                        timeVelocity={0.5 + Math.random()}
+                        incommingMessageDelay={1000 + Math.random() * 1000}
                         receiveObservable={subject.pipe(
-                            filter((e) => e.clientId !== clientId),
-                            delay(1000 + Math.random() * 1000)
+                            filter((e) => e.clientId !== clientId)
                         )}
                         sendSubject={subject}
                     />
@@ -53,8 +55,14 @@ function animationFactory(directionInverted: boolean, basePosition: number): (ti
 export function Client({
     clientId,
     sendSubject,
-    receiveObservable
+    receiveObservable,
+    timeOffset,
+    timeVelocity,
+    incommingMessageDelay
 }: {
+    incommingMessageDelay: number
+    timeVelocity: number
+    timeOffset: number
     clientId: string
     sendSubject: Subject<Event>
     receiveObservable: Observable<Event>
@@ -80,16 +88,19 @@ export function Client({
                 stateTime: 0
             }]
 
-            const timeline = new ConsistentTimeline(baseHistory, 0,
+            const timeline = new ConsistentTimeline(baseHistory,
+                timeOffset,
                 () => new Date().getTime(),
                 2000,
                 () => {
                     setContinousTimeline([...timeline.history])
-                })
+                },
+                timeVelocity
+            )
             setContinousTimeline([...timeline.history])
             return timeline
         },
-        [setContinousTimeline]
+        [setContinousTimeline, timeOffset, timeVelocity]
     )
 
     const createLocalEvent = useCallback(
@@ -108,12 +119,15 @@ export function Client({
         [clientId, timeline, sendSubject]
     )
     useEffect(() => {
-        const subscription = receiveObservable.subscribe((event) => {
-            timeline.insert(event.stateTime, ({ directionInverted, value }) => ({
-                type: StateType.CONTINOUS,
-                value: animationFactory(!directionInverted, value)
-            }))
-        })
+        const subscription = receiveObservable.pipe(
+            delay(incommingMessageDelay),
+            tap((event) => {
+                timeline.insert(event.stateTime, ({ directionInverted, value }) => ({
+                    type: StateType.CONTINOUS,
+                    value: animationFactory(!directionInverted, value)
+                }))
+            })
+        ).subscribe()
         return () => subscription.unsubscribe()
     }, [timeline, clientId])
     return <div style={{ flexBasis: 0, display: "flex", flexDirection: "column", margin: "1rem", flexGrow: 1, overflow: "hidden" }}>
@@ -121,24 +135,39 @@ export function Client({
             <Point timeline={timeline} />
         </div>
         <button onClick={() => createLocalEvent()}>invert</button>
+        <span>Time offset: {timeOffset}</span>
+        <span>Time velocity: {timeVelocity.toFixed(2)}</span>
+        <span>Incomming message delay: {incommingMessageDelay.toFixed(0)}</span>
         {continousTimeline.map((entry, index) => <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
-            <span>time: {entry.stateTime}</span>
-            <span>value: {getStateAt(entry.stateTime, entry.stateTime, entry.state).value}</span>
+            <span>time: {entry.stateTime.toFixed(0)}</span>
+            <span>value: {getStateAt(entry.stateTime, entry.stateTime, entry.state).value.toFixed(2)}</span>
         </div>)}
     </div>
 }
 
 function Point({ timeline }: { timeline: ConsistentTimeline<{ value: number, directionInverted: boolean }> }) {
-    const [marginLeft, setMarginLeft] = useState("0%")
+    const [{ marginLeft, time }, setState] = useState(() => ({
+        marginLeft: "0%",
+        time: timeline.getCurrentTime()
+    }))
     useEffect(() => {
         const ref = window.setInterval(() => {
-            const { value } = timeline.getCurrentState()
+            const currentTime = timeline.getCurrentTime()
+            const entry = timeline.history[timeline.history.length - 1]
+            const { value } = getStateAt(currentTime, entry.stateTime, entry.state)
             const abs = Math.abs(value)
             const backwards = Math.floor(abs) % 2 === 1
             const boundedValue = backwards ? 1 - (abs % 1) : (abs % 1)
-            setMarginLeft(`calc(${(100 * boundedValue).toFixed(3)}% - ${(3 * boundedValue).toFixed(3)}rem)`)
+            setState({
+                marginLeft: `calc(${(100 * boundedValue).toFixed(3)}% - ${(3 * boundedValue).toFixed(3)}rem)`,
+                time: currentTime
+            })
+
         }, 30)
         return () => window.clearInterval(ref)
-    }, [setMarginLeft])
-    return <div style={{ width: "3rem", height: "3rem", marginLeft, background: "#f00", borderRadius: "100%" }} />
+    }, [setState])
+    return <>
+        <span>time: {time.toFixed(0)}</span>
+        <div style={{ width: "3rem", height: "3rem", marginLeft, background: "#f00", borderRadius: "100%" }} />
+    </>
 }
