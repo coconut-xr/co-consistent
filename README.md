@@ -1,1 +1,1 @@
-# co-vectorize
+# co-nsistent

@@ -6,8 +6,8 @@ module.exports = withImages(
         images: {
             loader: "custom",
         },
-        basePath: "/co-vectorize",
-        assetPrefix: "/co-vectorize",
+        basePath: "/co-nsistent",
+        assetPrefix: "/co-nsistent",
         eslint: {
             ignoreDuringBuilds: true,
         },

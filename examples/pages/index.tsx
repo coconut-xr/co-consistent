@@ -1,12 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import {
-    VectorClock,
-    vectorClockIncrease,
-    vectorClockMax,
-    VectorizedTimeline,
-    VectorizedTimelineEntry,
-    vectorizedTimelineEntryToArray
-} from "co-vectorize"
+import { ConsistentTimeline, ContisistentTimelineEntry, getStateAt, StateType } from "co-nsistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -20,10 +13,10 @@ export default function Index() {
                     <Client
                         key={i}
                         clientId={clientId}
-                        timeOffset={Math.floor(Math.random() * 2000 - 500)}
+                        timeOffset={Math.floor(Math.random() * 2000)}
                         receiveObservable={subject.pipe(
                             filter((e) => e.clientId !== clientId),
-                            delay(1000 + Math.random() * 1000)
+                            delay(500 + Math.random() * 500)
                         )}
                         sendSubject={subject}
                     />
@@ -41,8 +34,7 @@ export default function Index() {
 type Event = {
     type: "+2" | "*2"
     clientId: string
-    timestamp: number
-    clock: VectorClock
+    stateTime: number
 }
 
 function reduce(events: Array<Event>, event: Event): Array<Event> {
@@ -60,57 +52,62 @@ export function Client({
     sendSubject: Subject<Event>
     receiveObservable: Observable<Event>
 }) {
-    const clock = useMemo<VectorClock>(() => ({}), [])
+    //TODO: use offset
     const [events, addEventToList] = useReducer(reduce, [])
-    const [vectorizedTimeline, setVectorizedTimeline] = useState<Array<VectorizedTimelineEntry<number>>>([])
+    const [consistentTimeline, setConsistentTimeline] = useState<Array<ContisistentTimelineEntry<number>>>([])
     const [result, setResult] = useState(0)
     const timeline = useMemo(
-        () =>
-            new VectorizedTimeline<number>(0, 0, new Date().getTime(), {}, "server", 4000, (result, entry) => {
-                setResult(result)
-                setVectorizedTimeline(vectorizedTimelineEntryToArray(entry))
-            }),
-        [setResult, setVectorizedTimeline]
+        () => {
+            const baseHistory: Array<ContisistentTimelineEntry<number>> = [{
+                reducer: () => {
+                    throw "can't reduce the first state"
+                },
+                state: {
+                    value: 0,
+                    type: StateType.STATIC
+                },
+                stateTime: 0
+            }]
+            const timeline = new ConsistentTimeline<number>(baseHistory, timeOffset, () => new Date().getTime() + timeOffset, 2000, () => {
+                setResult(timeline.getCurrentState())
+                setConsistentTimeline(timeline.history)
+            })
+            return timeline
+        },
+        [setResult, timeOffset, setConsistentTimeline]
     )
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            timeline.add(
-                event.clock,
-                event.clientId,
-                event.timestamp,
-                event.type === "*2" ? (v) => v * 2 : (v) => v + 2
+            timeline.insert(
+                event.stateTime,
+                event.type === "*2" ? (v) => ({
+                    type: StateType.STATIC,
+                    value: v * 2
+                }) : (v) => ({
+                    type: StateType.STATIC,
+                    value: v + 2
+                })
             )
         },
         [addEventToList, timeline]
     )
     const createLocalEvent = useCallback(
         (type: "*2" | "+2") => {
-            //local event
-            vectorClockIncrease(clock, clientId, 1)
-            const event = {
+            const event: Event = {
                 clientId,
-                clock: { ...clock },
-                timestamp: new Date().getTime() + timeOffset,
-                type,
+                stateTime: timeline.getCurrentTime(),
+                type
             }
-            //send event
-            vectorClockIncrease(clock, clientId, 1)
             addEvent(event)
             sendSubject.next(event)
         },
-        [clock, clientId, timeline, sendSubject, addEvent]
+        [clientId, timeline, sendSubject, addEvent]
     )
     useEffect(() => {
-        const subscription = receiveObservable.subscribe((event) => {
-            //max events
-            vectorClockMax(clock, event.clock)
-            //receive event
-            vectorClockIncrease(clock, clientId, 1)
-            addEvent(event)
-        })
+        const subscription = receiveObservable.subscribe(addEvent)
         return () => subscription.unsubscribe()
-    }, [addEvent, clientId, clock])
+    }, [addEvent, clientId])
     return (
         <div style={{ flexBasis: 0, flexGrow: 1, margin: "3rem" }}>
             <h1>Client {clientId}</h1>
@@ -124,41 +121,22 @@ export function Client({
                 *2
             </button>
             <h2>Events in received order</h2>
-            {events.map(({ clientId, clock, timestamp, type }, i) => (
+            {events.map(({ clientId, stateTime, type }, i) => (
                 <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
                     <span>{type}</span>
-                    <span>Clock: {JSON.stringify(clock)}</span>
                     <span>Client Id: {clientId}</span>
-                    <span>Timestamp: {<Timestamp value={timestamp} />}</span>
+                    <span>State Time: {stateTime}</span>
                 </div>
             ))}
             <h2>Established Timeline</h2>
-            {vectorizedTimeline.map(({ clientId, action, clock, state, originTimestamp, localTimestamp }, i) => (
+            {consistentTimeline.map(({ state, stateTime }, i) => (
                 <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                    <span>{action.toString()}</span>
-                    <span>{state}</span>
-                    <span>Clock: {JSON.stringify(clock)}</span>
+                    <span>state: {getStateAt(stateTime, stateTime, state)}</span>
                     <span>Client Id: {clientId}</span>
-                    <span>
-                        Origin Timestamp: <Timestamp value={originTimestamp} />
-                    </span>
-                    <span>
-                        Local Timestamp: <Timestamp value={localTimestamp} />
-                    </span>
+                    <span>State Time: {stateTime}</span>
                 </div>
             ))}
             <h2>Result: {result}</h2>
         </div>
-    )
-}
-
-function Timestamp({ value }: { value: number }) {
-    return (
-        <span>
-            {useMemo(() => {
-                const date = new Date(value)
-                return `${date.getMinutes()}:${date.getSeconds()}.${date.getMilliseconds()}`
-            }, [value])}
-        </span>
     )
 }

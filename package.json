@@ -1,5 +1,5 @@
 {
-  "name": "co-vectorize",
+  "name": "co-nsistent",
   "version": "1.0.0",
   "description": "globally consistent event ordering for decentralized distributed systems",
   "scripts": {

@@ -1,3 +1,2 @@
-export * from "./vector-clock"
-export * from "./vectorized-timeline"
-export * from "./continous-timeline"
+export * from "./consistent-timeline"
+export * from "./state-clock"

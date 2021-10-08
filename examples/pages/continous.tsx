@@ -1,11 +1,10 @@
-import { ContinousState, ContinousTimeline, ContinousTimelineEntry, continousTimelineEntryToArray, getStateAt, StateType } from "co-vectorize";
+import { ContinousState, ConsistentTimeline, getStateAt, StateType, ContisistentTimelineEntry } from "co-nsistent";
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { Observable, Subject } from "rxjs";
 import { delay, filter } from "rxjs/operators"
 
 export default function Continous() {
     const subject = useMemo(() => new Subject<Event>(), [])
-    const globalBaseTime = useMemo(() => new Date().getTime(), [])
     const clients = useMemo(
         () =>
             new Array(5).fill(null).map((_, i) => {
@@ -13,7 +12,6 @@ export default function Continous() {
                 return (
                     <Client
                         key={i}
-                        globalBaseTime={globalBaseTime}
                         clientId={clientId}
                         receiveObservable={subject.pipe(
                             filter((e) => e.clientId !== clientId),
@@ -34,16 +32,16 @@ export default function Continous() {
 
 type Event = {
     clientId: string
-    globalTime: number
+    stateTime: number
 }
 
 function reduce(events: Array<Event>, event: Event): Array<Event> {
     return [...events, event]
 }
 
-function animationFactory(directionInverted: boolean, basePosition: number, baseGlobalTime: number): (time: number) => { value: number, directionInverted: boolean } {
+function animationFactory(directionInverted: boolean, basePosition: number): (time: number) => { value: number, directionInverted: boolean } {
     return (time: number) => {
-        const seconds = ((time - baseGlobalTime) / 1000)
+        const seconds = time / 1000
         const absolutePosition = directionInverted ? basePosition + seconds : basePosition - seconds
         return {
             directionInverted,
@@ -55,53 +53,55 @@ function animationFactory(directionInverted: boolean, basePosition: number, base
 export function Client({
     clientId,
     sendSubject,
-    receiveObservable,
-    globalBaseTime
+    receiveObservable
 }: {
-    globalBaseTime: number,
     clientId: string
     sendSubject: Subject<Event>
     receiveObservable: Observable<Event>
 }) {
     //const [events, addEventToList] = useReducer(reduce, [])
 
-    const [state, seState] = useState<State>({
-        type: StateType.STATIC, value: {
-            value: 0,
-            directionInverted: false
-        }
-    })
-    const [continousTimeline, setContinousTimeline] = useState<Array<ContinousTimelineEntry<{
+    const [continousTimeline, setContinousTimeline] = useState<Array<ContisistentTimelineEntry<{
         value: number;
         directionInverted: boolean;
     }>>>([])
     const timeline = useMemo(
         () => {
-            const baseState: State = {
-                type: StateType.CONTINOUS, value: animationFactory(false, 0, globalBaseTime)
-            }
+            const baseHistory: Array<ContisistentTimelineEntry<{
+                value: number;
+                directionInverted: boolean;
+            }>> = [{
+                reducer: () => {
+                    throw "can't reduce the first state"
+                },
+                state: {
+                    type: StateType.CONTINOUS, value: animationFactory(false, 0)
+                },
+                stateTime: 0
+            }]
 
-            seState(baseState)
-            const timeline = new ContinousTimeline(baseState, globalBaseTime, (time) => time < new Date().getTime() - 2000, (entry) => {
-                seState(entry.state)
-                setContinousTimeline(continousTimelineEntryToArray(entry))
-            })
-            setContinousTimeline(continousTimelineEntryToArray(timeline.currentEntry))
+            const timeline = new ConsistentTimeline(baseHistory, 0,
+                () => new Date().getTime(),
+                2000,
+                () => {
+                    setContinousTimeline([...timeline.history])
+                })
+            setContinousTimeline([...timeline.history])
             return timeline
         },
-        [globalBaseTime, seState, setContinousTimeline]
+        [setContinousTimeline]
     )
 
     const createLocalEvent = useCallback(
         () => {
-            const globalTime = new Date().getTime()
-            const event = {
+            const stateTime = timeline.getCurrentTime()
+            const event: Event = {
                 clientId,
-                globalTime
+                stateTime
             }
-            timeline.insert(globalTime, ({ directionInverted, value }) => ({
+            timeline.insert(stateTime, ({ directionInverted, value }) => ({
                 type: StateType.CONTINOUS,
-                value: animationFactory(!directionInverted, value, globalTime)
+                value: animationFactory(!directionInverted, value)
             }))
             sendSubject.next(event)
         },
@@ -109,39 +109,36 @@ export function Client({
     )
     useEffect(() => {
         const subscription = receiveObservable.subscribe((event) => {
-            timeline.insert(event.globalTime, ({ directionInverted, value }) => ({
+            timeline.insert(event.stateTime, ({ directionInverted, value }) => ({
                 type: StateType.CONTINOUS,
-                value: animationFactory(!directionInverted, value, event.globalTime)
+                value: animationFactory(!directionInverted, value)
             }))
         })
         return () => subscription.unsubscribe()
     }, [timeline, clientId])
     return <div style={{ flexBasis: 0, display: "flex", flexDirection: "column", margin: "1rem", flexGrow: 1, overflow: "hidden" }}>
         <div style={{ border: "1px solid" }}>
-            <Point state={state} />
+            <Point timeline={timeline} />
         </div>
         <button onClick={() => createLocalEvent()}>invert</button>
         {continousTimeline.map((entry, index) => <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
-            <span>time: {entry.globalTime}</span>
-            <span>value: {getStateAt(entry.globalTime, entry.state).value}</span>
+            <span>time: {entry.stateTime}</span>
+            <span>value: {getStateAt(entry.stateTime, entry.stateTime, entry.state).value}</span>
         </div>)}
     </div>
 }
 
-type State = ContinousState<{ value: number, directionInverted: boolean }>
-
-function Point({ state }: { state: State }) {
+function Point({ timeline }: { timeline: ConsistentTimeline<{ value: number, directionInverted: boolean }> }) {
     const [marginLeft, setMarginLeft] = useState("0%")
     useEffect(() => {
         const ref = window.setInterval(() => {
-            const time = new Date().getTime()
-            const { value } = getStateAt(time, state)
+            const { value } = timeline.getCurrentState()
             const abs = Math.abs(value)
             const backwards = Math.floor(abs) % 2 === 1
             const boundedValue = backwards ? 1 - (abs % 1) : (abs % 1)
             setMarginLeft(`calc(${(100 * boundedValue).toFixed(3)}% - ${(3 * boundedValue).toFixed(3)}rem)`)
         }, 30)
         return () => window.clearInterval(ref)
-    }, [setMarginLeft, state])
+    }, [setMarginLeft])
     return <div style={{ width: "3rem", height: "3rem", marginLeft, background: "#f00", borderRadius: "100%" }} />
 }
