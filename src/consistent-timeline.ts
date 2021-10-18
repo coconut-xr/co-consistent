@@ -4,12 +4,11 @@
 
 import { StateClock } from "."
 
-export type ConsistentTimelineObserver<S> = { stateTime: number, onChange: (state: S) => void }
+export type ConsistentTimelineObserver<S> = { stateTime: number, onChange: (setState: (ref: S) => void) => void }
 
 export class ConsistentTimeline<S> {
 
     private observers: Array<ConsistentTimelineObserver<S>> = []
-    private clock: StateClock
 
     constructor(
         /**
@@ -17,19 +16,18 @@ export class ConsistentTimeline<S> {
          * [0, ..., n]
          */
         public readonly history: Array<ContisistentTimelineEntry<S>>,
-        stateTime: number,
-        getRealTime: () => number,
+        private readonly applyExtrapolatedState: (ref: S, state: S, time: number) => void,
+        private readonly createState: () => S,
+        private readonly clock: StateClock,
         private readonly historyDuration: number,
         private readonly onChange?: () => void,
-        stateTimeVelocity?: number,
     ) {
-        this.clock = new StateClock(stateTime, getRealTime, stateTimeVelocity)
     }
 
-    getCurrentState(): S {
+    applyCurrentState(ref: S): void {
         const time = this.clock.getCurrentTime()
         const current = this.history[this.history.length - 1]
-        return getStateAt(time, current.stateTime, current.state)
+        this.applyStateAt(ref, current.state, current.stateTime, time)
     }
 
     private cleanObservers(): void {
@@ -59,7 +57,7 @@ export class ConsistentTimeline<S> {
         return this.clock.getCurrentTime()
     }
 
-    insert(stateTime: number, reducer: (state: S) => ContinousState<S>): () => void {
+    insert(stateTime: number, reduce: (state: S) => void): () => void {
         const currentTime = this.clock.getCurrentTime()
         this.removeOldElements(currentTime)
         this.cleanObservers()
@@ -72,14 +70,13 @@ export class ConsistentTimeline<S> {
             }
             if (prev.stateTime < stateTime) {
 
-                if(currentTime < stateTime) {
+                if (currentTime < stateTime) {
                     this.clock.jump(stateTime - currentTime)
                 }
-
                 const entry: ContisistentTimelineEntry<S> = {
-                    stateTime: stateTime,
-                    reducer,
-                    state: reducer(getStateAt(stateTime, prev.stateTime, prev.state))
+                    stateTime,
+                    reduce,
+                    state: this.createBaseState(prev.state, prev.stateTime, stateTime, reduce)
                 }
                 this.history.splice(i + 1, 0, entry)
                 this.reclculate(stateTime, i)
@@ -110,7 +107,7 @@ export class ConsistentTimeline<S> {
             const prev = this.history[i - 1]
             const current = this.history[i]
             const next = this.history[i + 1]
-            current.state = current.reducer(getStateAt(current.stateTime, prev.stateTime, prev.state))
+            current.state = this.createBaseState(prev.state, prev.stateTime, current.stateTime, current.reduce)
             while (
                 observerIndex >= 0 && //required case findIndex can ouput -1
                 observerIndex < this.observers.length &&
@@ -118,14 +115,14 @@ export class ConsistentTimeline<S> {
                 (next == null || this.observers[observerIndex].stateTime < current.stateTime)
             ) {
                 const observer = this.observers[observerIndex]
-                observer.onChange(getStateAt(observer.stateTime, current.stateTime, current.state))
+                observer.onChange((ref) => this.applyStateAt(ref, current.state, current.stateTime, observer.stateTime))
                 observerIndex++
             }
         }
         this.onChange && this.onChange()
     }
 
-    observeAt(stateTime: number, onChange: (state: S) => void): () => void {
+    observeAt(stateTime: number, onChange: (setState: (ref: S) => void) => void): () => void {
         const observer: ConsistentTimelineObserver<S> = {
             stateTime: stateTime,
             onChange
@@ -138,12 +135,26 @@ export class ConsistentTimeline<S> {
         }
     }
 
+    private createBaseState(prevState: S, prevStateTime: number, baseStateTime: number, reducer: (state: S) => void): S {
+        const result = this.createState()
+        this.applyStateAt(result, prevState, prevStateTime, baseStateTime)
+        reducer(result)
+        return result
+    }
+
+    applyStateAt(ref: S, state: S, stateStateTime: number, currentStateTime: number): void {
+        if (currentStateTime < stateStateTime) {
+            throw "can't extrapolate an state into the past"
+        }
+        this.applyExtrapolatedState(ref, state, currentStateTime - stateStateTime)
+    }
+
 }
 
 export type ContisistentTimelineEntry<S> = {
-    state: ContinousState<S>,
+    state: S,
     stateTime: number,
-    reducer: (state: S) => ContinousState<S>
+    reduce: (state: S) => void
 }
 
 export enum StateType {
@@ -151,17 +162,4 @@ export enum StateType {
     STATIC
 }
 
-export type ContinousState<S> = {
-    type: StateType.STATIC
-    value: S
-} | {
-    type: StateType.CONTINOUS
-    value: ((stateTime: number) => S)
-}
-
-export function getStateAt<S>(currentStateTime: number, stateStateTime: number, state: ContinousState<S>): S {
-    if (currentStateTime < stateStateTime) {
-        throw "can't extrapolate an state into the past"
-    }
-    return state.type === StateType.CONTINOUS ? state.value(currentStateTime - stateStateTime) : state.value
-}
+export type ExtrapolatedStateApplier<S, C> = (ref: C, state: S, time: number) => void
