@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { ConsistentTimeline, ContisistentTimelineEntry, StateClock, StateType } from "co-nsistent"
+import { ConsistentTimeline, ContisistentTimelineEntry, StateClock, StateType } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 

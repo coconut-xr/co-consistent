@@ -8,7 +8,7 @@
         "generate": "next build && next export"
     },
     "dependencies": {
-        "co-nsistent": "file:../dist",
+        "co-consistent": "file:../dist",
         "next": "^11.1.2",
         "next-images": "^1.8.1",
         "next-purgecss": "^4.0.0",

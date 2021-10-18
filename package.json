@@ -1,5 +1,5 @@
 {
-    "name": "co-nsistent",
+    "name": "co-consistent",
     "version": "1.0.0",
     "description": "globally consistent event ordering for decentralized distributed systems",
     "scripts": {

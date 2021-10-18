@@ -1,4 +1,4 @@
-# co-nsistent
+# co-consistent
 
 globally consistent event ordering for decentralized distributed systems
 

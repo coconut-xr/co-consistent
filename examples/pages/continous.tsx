@@ -1,4 +1,4 @@
-import { ConsistentTimeline, ContisistentTimelineEntry, StateClock } from "co-nsistent"
+import { ConsistentTimeline, ContisistentTimelineEntry, StateClock } from "co-consistent"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Observable, Subject } from "rxjs"
 import { delay, filter, tap } from "rxjs/operators"

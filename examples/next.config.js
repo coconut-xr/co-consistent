@@ -6,8 +6,8 @@ module.exports = withImages(
         images: {
             loader: "custom",
         },
-        basePath: "/co-nsistent",
-        assetPrefix: "/co-nsistent",
+        basePath: "/co-consistent",
+        assetPrefix: "/co-consistent",
         eslint: {
             ignoreDuringBuilds: true,
         },
