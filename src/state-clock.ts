@@ -1,12 +1,7 @@
 export class StateClock {
-
     private realTimeAtStateTime: number
 
-    constructor(
-        private stateTime: number,
-        private readonly getRealTime: () => number,
-        private stateTimeVelocity = 1
-    ) {
+    constructor(private stateTime: number, private readonly getRealTime: () => number, private stateTimeVelocity = 1) {
         this.realTimeAtStateTime = this.getRealTime()
     }
 
@@ -19,7 +14,7 @@ export class StateClock {
     }
 
     jump(by: number): void {
-        if(by < 0) {
+        if (by < 0) {
             throw "can't jump backwards in state time"
         }
         this.stateTime += by
@@ -35,5 +30,4 @@ export class StateClock {
     getVelocity(): number {
         return this.stateTimeVelocity
     }
-
 }

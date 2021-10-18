@@ -1,6 +1,6 @@
-import { ConsistentTimeline, StateType, ContisistentTimelineEntry, StateClock } from "co-nsistent";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Observable, Subject } from "rxjs";
+import { ConsistentTimeline, ContisistentTimelineEntry, StateClock } from "co-nsistent"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Observable, Subject } from "rxjs"
 import { delay, filter, tap } from "rxjs/operators"
 
 export default function Continous() {
@@ -16,9 +16,7 @@ export default function Continous() {
                         timeOffset={0}
                         timeVelocity={1}
                         incommingMessageDelay={1000 + Math.random() * 1000}
-                        receiveObservable={subject.pipe(
-                            filter((e) => e.clientId !== clientId)
-                        )}
+                        receiveObservable={subject.pipe(filter((e) => e.clientId !== clientId))}
                         sendSubject={subject}
                     />
                 )
@@ -44,7 +42,7 @@ function reduce(events: Array<Event>, event: Event): Array<Event> {
 }
 
 type State = {
-    value: number,
+    value: number
     directionInverted: boolean
 }
 
@@ -54,7 +52,7 @@ export function Client({
     receiveObservable,
     timeOffset,
     timeVelocity,
-    incommingMessageDelay
+    incommingMessageDelay,
 }: {
     incommingMessageDelay: number
     timeVelocity: number
@@ -65,106 +63,137 @@ export function Client({
 }) {
     //const [events, addEventToList] = useReducer(reduce, [])
 
-    const [continousTimeline, setContinousTimeline] = useState<Array<ContisistentTimelineEntry<{
-        value: number;
-        directionInverted: boolean;
-    }>>>([])
-    const timeline = useMemo(
-        () => {
-            const clock = new StateClock(timeOffset, () => new Date().getTime())
-            const baseHistory: Array<ContisistentTimelineEntry<{
-                value: number;
-                directionInverted: boolean;
-            }>> = [{
-                reduce: () => {
-                    throw "can't reduce the first state"
+    const [continousTimeline, setContinousTimeline] = useState<
+        Array<
+            ContisistentTimelineEntry<
+                {
+                    value: number
+                    directionInverted: boolean
                 },
+                undefined
+            >
+        >
+    >([])
+    const timeline = useMemo(() => {
+        const clock = new StateClock(timeOffset, () => new Date().getTime())
+        const baseHistory: Array<
+            ContisistentTimelineEntry<
+                {
+                    value: number
+                    directionInverted: boolean
+                },
+                undefined
+            >
+        > = [
+            {
+                action: undefined,
                 state: {
                     directionInverted: false,
-                    value: 0
+                    value: 0,
                 },
-                stateTime: 0
-            }]
+                stateTime: 0,
+            },
+        ]
 
-            const timeline = new ConsistentTimeline(baseHistory,
-                (ref, state, time) => {
-                    ref.directionInverted = state.directionInverted
-                    ref.value = state.value + time * (state.directionInverted ? -velocity : velocity)
-                },
-                () => ({ value: 0, directionInverted: false }),
-                clock,
-                2000,
-                () => {
-                    setContinousTimeline([...timeline.history])
-                }
-            )
-            setContinousTimeline([...timeline.history])
-            return timeline
-        },
-        [setContinousTimeline, timeVelocity, timeOffset]
-    )
-
-    const smoothedRef = useMemo<{ state: SmoothState | undefined, time: number | undefined }>(() => ({ state: undefined, time: undefined }), [])
-
-    const insert = useCallback((currentTime: number, stateTime: number) => {
-
-
-        if (smoothedRef.state != null && smoothedRef.time != null) {
-            const deltaTime = currentTime - smoothedRef.time
-            smoothedRef.state.value += smoothedRef.state.velocity * deltaTime
-            smoothedRef.state.velocity = -smoothedRef.state.velocity
-            smoothedRef.time = currentTime
-        }
-        timeline.insert(stateTime, (ref) => ref.directionInverted = !ref.directionInverted)
-
-    }, [timeline, smoothedRef])
-
-    const createLocalEvent = useCallback(
-        () => {
-            const stateTime = timeline.getCurrentTime()
-            const event: Event = {
-                clientId,
-                stateTime
+        const timeline = new ConsistentTimeline(
+            baseHistory,
+            () => ({ value: 0, directionInverted: false }),
+            (state) => (state.directionInverted = !state.directionInverted),
+            (ref, state, time) => {
+                ref.directionInverted = state.directionInverted
+                ref.value = state.value + time * (state.directionInverted ? -velocity : velocity)
+            },
+            clock,
+            2000,
+            () => {
+                setContinousTimeline([...timeline.history])
             }
-            insert(stateTime, stateTime)
-            sendSubject.next(event)
-        },
-        [clientId, timeline, sendSubject]
+        )
+        setContinousTimeline([...timeline.history])
+        return timeline
+    }, [setContinousTimeline, timeVelocity, timeOffset])
+
+    const smoothedRef = useMemo<{ state: SmoothState | undefined; time: number | undefined }>(
+        () => ({ state: undefined, time: undefined }),
+        []
     )
+
+    const insert = useCallback(
+        (currentTime: number, stateTime: number) => {
+            if (smoothedRef.state != null && smoothedRef.time != null) {
+                const deltaTime = currentTime - smoothedRef.time
+                smoothedRef.state.value += smoothedRef.state.velocity * deltaTime
+                smoothedRef.state.velocity = -smoothedRef.state.velocity
+                smoothedRef.time = currentTime
+            }
+            timeline.insert(stateTime, undefined)
+        },
+        [timeline, smoothedRef]
+    )
+
+    const createLocalEvent = useCallback(() => {
+        const stateTime = timeline.getCurrentTime()
+        const event: Event = {
+            clientId,
+            stateTime,
+        }
+        insert(stateTime, stateTime)
+        sendSubject.next(event)
+    }, [clientId, timeline, sendSubject])
     useEffect(() => {
-        const subscription = receiveObservable.pipe(
-            delay(incommingMessageDelay),
-            tap((event) => insert(timeline.getCurrentTime(), event.stateTime))
-        ).subscribe()
+        const subscription = receiveObservable
+            .pipe(
+                delay(incommingMessageDelay),
+                tap((event) => insert(timeline.getCurrentTime(), event.stateTime))
+            )
+            .subscribe()
         return () => subscription.unsubscribe()
     }, [timeline, clientId, insert])
 
-    return <div style={{ flexBasis: 0, display: "flex", flexDirection: "column", margin: "1rem", flexGrow: 1, overflow: "hidden" }}>
-        <div style={{ border: "1px solid" }}>
-            <Point smoothedRef={smoothedRef} timeline={timeline} />
-        </div>
-        <button onClick={() => createLocalEvent()}>invert</button>
-        <span>Time offset: {timeOffset}</span>
-        <span>Time velocity: {timeVelocity.toFixed(2)}</span>
-        <span>Incomming message delay: {incommingMessageDelay.toFixed(0)}</span>
-        {continousTimeline.map((entry, index) => {
-            return <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
-                <span>time: {entry.stateTime.toFixed(0)}</span>
-                <span>value: {entry.state.value.toFixed(2)}</span>
+    return (
+        <div
+            style={{
+                flexBasis: 0,
+                display: "flex",
+                flexDirection: "column",
+                margin: "1rem",
+                flexGrow: 1,
+                overflow: "hidden",
+            }}>
+            <div style={{ border: "1px solid" }}>
+                <Point smoothedRef={smoothedRef} timeline={timeline} />
             </div>
-        })}
-    </div>
+            <button onClick={() => createLocalEvent()}>invert</button>
+            <span>Time offset: {timeOffset}</span>
+            <span>Time velocity: {timeVelocity.toFixed(2)}</span>
+            <span>Incomming message delay: {incommingMessageDelay.toFixed(0)}</span>
+            {continousTimeline.map((entry, index) => {
+                return (
+                    <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
+                        <span>time: {entry.stateTime.toFixed(0)}</span>
+                        <span>value: {entry.state.value.toFixed(2)}</span>
+                    </div>
+                )
+            })}
+        </div>
+    )
 }
 
-function Point({ timeline, smoothedRef }: { smoothedRef: { state: SmoothState | undefined, time: number | undefined }, timeline: ConsistentTimeline<{ value: number, directionInverted: boolean }> }) {
+function Point({
+    timeline,
+    smoothedRef,
+}: {
+    smoothedRef: { state: SmoothState | undefined; time: number | undefined }
+    timeline: ConsistentTimeline<{ value: number; directionInverted: boolean }, undefined>
+}) {
     const [{ marginLeft, time }, setState] = useState(() => ({
         marginLeft: "0%",
-        time: timeline.getCurrentTime()
+        time: timeline.getCurrentTime(),
     }))
     useEffect(() => {
         const realState: State = {
             value: 0,
-            directionInverted: false
+            directionInverted: false,
         }
         const ref = window.setInterval(() => {
             const realStateTime = timeline.getCurrentTime()
@@ -173,26 +202,28 @@ function Point({ timeline, smoothedRef }: { smoothedRef: { state: SmoothState | 
             if (smoothedRef.state == null || smoothedRef.time == null) {
                 smoothedRef.state = {
                     value: realState.value,
-                    velocity: realState.directionInverted ? -velocity : velocity
+                    velocity: realState.directionInverted ? -velocity : velocity,
                 }
             } else {
                 applySmoothing(smoothedRef.state, smoothedRef.time, realState, realStateTime)
                 const abs = Math.abs(smoothedRef.state.value)
                 const backwards = Math.floor(abs) % 2 === 1
-                const boundedValue = backwards ? 1 - (abs % 1) : (abs % 1)
+                const boundedValue = backwards ? 1 - (abs % 1) : abs % 1
                 setState({
                     marginLeft: `calc(${(100 * boundedValue).toFixed(3)}% - ${(3 * boundedValue).toFixed(3)}rem)`,
-                    time: realStateTime
+                    time: realStateTime,
                 })
             }
             smoothedRef.time = realStateTime
         }, 30)
         return () => window.clearInterval(ref)
     }, [setState, smoothedRef])
-    return <>
-        <span>time: {time.toFixed(0)}</span>
-        <div style={{ width: "3rem", height: "3rem", marginLeft, background: "#f00", borderRadius: "100%" }} />
-    </>
+    return (
+        <>
+            <span>time: {time.toFixed(0)}</span>
+            <div style={{ width: "3rem", height: "3rem", marginLeft, background: "#f00", borderRadius: "100%" }} />
+        </>
+    )
 }
 
 type SmoothState = {
@@ -200,14 +231,19 @@ type SmoothState = {
     velocity: number
 }
 
-function applySmoothing(smoothState: SmoothState, smoothStateTime: number, realState: State, realStateTime: number): void {
+function applySmoothing(
+    smoothState: SmoothState,
+    smoothStateTime: number,
+    realState: State,
+    realStateTime: number
+): void {
     const deltaTime = realStateTime - smoothStateTime
     const velocityReal = realState.directionInverted ? -velocity : velocity
     const valueReal = realState.value
     const valueSmoothed = smoothState.value
 
     //we are overshooting
-    const vd = (velocityReal + 0.05 * (valueReal - valueSmoothed) / deltaTime) / 1.05
+    const vd = (velocityReal + (0.05 * (valueReal - valueSmoothed)) / deltaTime) / 1.05
     smoothState.velocity += limitAbs(vd - smoothState.velocity, velocity * deltaTime * 0.1)
 
     smoothState.value += smoothState.velocity * deltaTime

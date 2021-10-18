@@ -4,25 +4,24 @@
 
 import { StateClock } from "."
 
-export type ConsistentTimelineObserver<S> = { stateTime: number, onChange: (setState: (ref: S) => void) => void }
+export type ConsistentTimelineObserver<S> = { stateTime: number; onChange: (setState: (ref: S) => void) => void }
 
-export class ConsistentTimeline<S> {
-
+export class ConsistentTimeline<S, A> {
     private observers: Array<ConsistentTimelineObserver<S>> = []
 
     constructor(
         /**
-         * [past, ..., current]  
+         * [past, ..., current]
          * [0, ..., n]
          */
-        public readonly history: Array<ContisistentTimelineEntry<S>>,
-        private readonly applyExtrapolatedState: (ref: S, state: S, time: number) => void,
+        public readonly history: Array<ContisistentTimelineEntry<S, A>>,
         private readonly createState: () => S,
+        private readonly applyAction: (ref: S, action: A) => void,
+        private readonly applyExtrapolatedState: (ref: S, state: S, time: number) => void,
         private readonly clock: StateClock,
         private readonly historyDuration: number,
-        private readonly onChange?: () => void,
-    ) {
-    }
+        private readonly onChange?: () => void
+    ) {}
 
     applyCurrentState(ref: S): void {
         const time = this.clock.getCurrentTime()
@@ -33,10 +32,7 @@ export class ConsistentTimeline<S> {
     private cleanObservers(): void {
         let i = 0
         const lastStateTime = this.history.length === 0 ? Infinity : this.history[this.history.length - 1].stateTime
-        while (
-            i < this.observers.length &&
-            this.observers[i].stateTime < lastStateTime
-        ) {
+        while (i < this.observers.length && this.observers[i].stateTime < lastStateTime) {
             i++
         }
         this.observers.splice(0, i)
@@ -44,10 +40,7 @@ export class ConsistentTimeline<S> {
 
     private removeOldElements(currentTime: number): void {
         let i = 0
-        while (
-            i < this.history.length - 1 &&
-            currentTime - this.history[i + 1].stateTime > this.historyDuration
-        ) {
+        while (i < this.history.length - 1 && currentTime - this.history[i + 1].stateTime > this.historyDuration) {
             i++
         }
         this.history.splice(0, i)
@@ -57,7 +50,7 @@ export class ConsistentTimeline<S> {
         return this.clock.getCurrentTime()
     }
 
-    insert(stateTime: number, reduce: (state: S) => void): () => void {
+    insert(stateTime: number, action: A): () => void {
         const currentTime = this.clock.getCurrentTime()
         this.removeOldElements(currentTime)
         this.cleanObservers()
@@ -69,19 +62,18 @@ export class ConsistentTimeline<S> {
                 throw `two event can not happen at the same time (${stateTime})`
             }
             if (prev.stateTime < stateTime) {
-
                 if (currentTime < stateTime) {
                     this.clock.jump(stateTime - currentTime)
                 }
-                const entry: ContisistentTimelineEntry<S> = {
+                const entry: ContisistentTimelineEntry<S, A> = {
                     stateTime,
-                    reduce,
-                    state: this.createBaseState(prev.state, prev.stateTime, stateTime, reduce)
+                    action,
+                    state: this.createBaseState(prev.state, prev.stateTime, stateTime, action),
                 }
                 this.history.splice(i + 1, 0, entry)
                 this.reclculate(stateTime, i)
                 return () => {
-                    const index = this.history.findIndex(e => e === entry)
+                    const index = this.history.findIndex((e) => e === entry)
                     if (index === -1) {
                         throw "entry not found in the timeline"
                     }
@@ -97,17 +89,17 @@ export class ConsistentTimeline<S> {
     }
 
     /**
-     * 
-     * @param stateTime 
+     *
+     * @param stateTime
      * @param fromIndex the index of the entry after which potential changes can happen
      */
     private reclculate(stateTime: number, fromIndex: number): void {
-        let observerIndex = this.observers.findIndex(observer => stateTime <= observer.stateTime)
+        let observerIndex = this.observers.findIndex((observer) => stateTime <= observer.stateTime)
         for (let i = fromIndex + 1; i < this.history.length; i++) {
             const prev = this.history[i - 1]
             const current = this.history[i]
             const next = this.history[i + 1]
-            current.state = this.createBaseState(prev.state, prev.stateTime, current.stateTime, current.reduce)
+            current.state = this.createBaseState(prev.state, prev.stateTime, current.stateTime, current.action)
             while (
                 observerIndex >= 0 && //required case findIndex can ouput -1
                 observerIndex < this.observers.length &&
@@ -125,7 +117,7 @@ export class ConsistentTimeline<S> {
     observeAt(stateTime: number, onChange: (setState: (ref: S) => void) => void): () => void {
         const observer: ConsistentTimelineObserver<S> = {
             stateTime: stateTime,
-            onChange
+            onChange,
         }
         const index = this.observers.findIndex((observer) => stateTime <= observer.stateTime)
         this.observers.splice(index, 0, observer)
@@ -135,10 +127,10 @@ export class ConsistentTimeline<S> {
         }
     }
 
-    private createBaseState(prevState: S, prevStateTime: number, baseStateTime: number, reducer: (state: S) => void): S {
+    private createBaseState(prevState: S, prevStateTime: number, baseStateTime: number, action: A): S {
         const result = this.createState()
         this.applyStateAt(result, prevState, prevStateTime, baseStateTime)
-        reducer(result)
+        this.applyAction(result, action)
         return result
     }
 
@@ -148,18 +140,17 @@ export class ConsistentTimeline<S> {
         }
         this.applyExtrapolatedState(ref, state, currentStateTime - stateStateTime)
     }
-
 }
 
-export type ContisistentTimelineEntry<S> = {
-    state: S,
-    stateTime: number,
-    reduce: (state: S) => void
+export type ContisistentTimelineEntry<S, A> = {
+    state: S
+    stateTime: number
+    action: A
 }
 
 export enum StateType {
     CONTINOUS,
-    STATIC
+    STATIC,
 }
 
 export type ExtrapolatedStateApplier<S, C> = (ref: C, state: S, time: number) => void

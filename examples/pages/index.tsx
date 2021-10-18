@@ -13,7 +13,7 @@ export default function Index() {
                     <Client
                         key={i}
                         clientId={clientId}
-                        timeOffset={Math.floor(Math.random() * 2000)}
+                        timeOffset={Math.floor(Math.random() * 1000)}
                         receiveObservable={subject.pipe(
                             filter((e) => e.clientId !== clientId),
                             delay(500 + Math.random() * 500)
@@ -32,9 +32,9 @@ export default function Index() {
 }
 
 type Event = {
-    type: "+2" | "*2"
+    action: Action
     clientId: string
-    stateTime: number
+    time: number
 }
 
 function reduce(events: Array<Event>, event: Event): Array<Event> {
@@ -44,6 +44,8 @@ function reduce(events: Array<Event>, event: Event): Array<Event> {
 type State = {
     value: number
 }
+
+type Action = "+2" | "*2"
 
 export function Client({
     timeOffset,
@@ -56,50 +58,49 @@ export function Client({
     sendSubject: Subject<Event>
     receiveObservable: Observable<Event>
 }) {
-    //TODO: use offset
     const [events, addEventToList] = useReducer(reduce, [])
-    const [consistentTimeline, setConsistentTimeline] = useState<Array<ContisistentTimelineEntry<State>>>([])
+    const [consistentTimeline, setConsistentTimeline] = useState<Array<ContisistentTimelineEntry<State, Action>>>([])
     const [result, setResult] = useState(0)
-    const timeline = useMemo(
-        () => {
-            const clock = new StateClock(timeOffset, () => new Date().getTime() + timeOffset)
-            const ref: State = { value: 0 }
-            const baseHistory: Array<ContisistentTimelineEntry<State>> = [{
-                reduce: () => {
-                    throw "can't reduce the first state"
-                },
+    const timeline = useMemo(() => {
+        const clock = new StateClock(timeOffset, () => new Date().getTime() + timeOffset)
+        const ref: State = { value: 0 }
+        const baseHistory: Array<ContisistentTimelineEntry<State, Action>> = [
+            {
+                action: null as any,
                 state: {
-                    value: 0
+                    value: 0,
                 },
-                stateTime: 0
-            }]
-            const timeline = new ConsistentTimeline<State>(baseHistory, () => { }, () => ({ value: 0 }), clock, 2000, () => {
+                stateTime: 0,
+            },
+        ]
+        const timeline = new ConsistentTimeline<State, Action>(
+            baseHistory,
+            () => ({ value: 0 }),
+            (ref, action) => (action === "*2" ? (ref.value *= 2) : (ref.value += 2)),
+            (ref, state) => (ref.value = state.value),
+            clock,
+            2000,
+            () => {
                 timeline.applyCurrentState(ref)
                 setResult(ref.value)
                 setConsistentTimeline(timeline.history)
-            })
-            return timeline
-        },
-        [setResult, timeOffset, setConsistentTimeline]
-    )
+            }
+        )
+        return timeline
+    }, [setResult, timeOffset, setConsistentTimeline])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            timeline.insert(
-                event.stateTime,
-                event.type === "*2" ?
-                    (ref) => ref.value *= 2 :
-                    (ref) => ref.value += 2
-            )
+            timeline.insert(event.time, event.action)
         },
         [addEventToList, timeline]
     )
     const createLocalEvent = useCallback(
-        (type: "*2" | "+2") => {
+        (action: "*2" | "+2") => {
             const event: Event = {
                 clientId,
-                stateTime: timeline.getCurrentTime(),
-                type
+                time: timeline.getCurrentTime(),
+                action,
             }
             addEvent(event)
             sendSubject.next(event)
@@ -123,20 +124,22 @@ export function Client({
                 *2
             </button>
             <h2>Events in received order</h2>
-            {events.map(({ clientId, stateTime, type }, i) => (
+            {events.map(({ clientId, time, action }, i) => (
                 <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                    <span>{type}</span>
+                    <span>{action}</span>
                     <span>Client Id: {clientId}</span>
-                    <span>State Time: {stateTime}</span>
+                    <span>State Time: {time}</span>
                 </div>
             ))}
             <h2>Established Timeline</h2>
             {consistentTimeline.map(({ state, stateTime }, i) => {
-                return <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                    <span>state: {state.value}</span>
-                    <span>Client Id: {clientId}</span>
-                    <span>State Time: {stateTime}</span>
-                </div>
+                return (
+                    <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
+                        <span>state: {state.value}</span>
+                        <span>Client Id: {clientId}</span>
+                        <span>State Time: {stateTime}</span>
+                    </div>
+                )
             })}
             <h2>Result: {result}</h2>
         </div>
