@@ -18,6 +18,7 @@ export class ConsistentTimeline<S, A> {
         private readonly createState: () => S,
         private readonly applyAction: (ref: S, action: A) => void,
         private readonly applyExtrapolatedState: (ref: S, state: S, time: number) => void,
+        private readonly compareAction: (a1: A, a2: A) => number,
         private readonly clock: StateClock,
         private readonly historyDuration: number,
         private readonly onChange?: () => void
@@ -50,18 +51,24 @@ export class ConsistentTimeline<S, A> {
         return this.clock.getCurrentTime()
     }
 
-    insert(stateTime: number, action: A): () => void {
+    /**
+     * @returns 'undefined' if the action is already contained (stateTime equal & compareAction function returns 0)
+     */
+    insert(stateTime: number, action: A): (() => void) | undefined {
         const currentTime = this.clock.getCurrentTime()
         this.removeOldElements(currentTime)
         this.cleanObservers()
 
         for (let i = this.history.length - 1; i >= 0; i--) {
             const prev = this.history[i]
-            if (prev.stateTime === stateTime) {
-                //TODO: use a second attribute for consistency
-                throw `two event can not happen at the same time (${stateTime})`
+            let comparison = prev.stateTime - stateTime
+            if (comparison === 0) {
+                comparison = this.compareAction(prev.action, action)
+                if (comparison === 0) {
+                    return undefined
+                }
             }
-            if (prev.stateTime < stateTime) {
+            if (comparison < 0) {
                 if (currentTime < stateTime) {
                     this.clock.jump(stateTime - currentTime)
                 }

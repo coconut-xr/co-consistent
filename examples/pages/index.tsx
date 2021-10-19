@@ -45,7 +45,10 @@ type State = {
     value: number
 }
 
-type Action = "+2" | "*2"
+type Action = {
+    type: "+2" | "*2"
+    id: number
+}
 
 export function Client({
     timeOffset,
@@ -76,8 +79,9 @@ export function Client({
         const timeline = new ConsistentTimeline<State, Action>(
             baseHistory,
             () => ({ value: 0 }),
-            (ref, action) => (action === "*2" ? (ref.value *= 2) : (ref.value += 2)),
+            (ref, action) => (action.type === "*2" ? (ref.value *= 2) : (ref.value += 2)),
             (ref, state) => (ref.value = state.value),
+            (a1, a2) => a1.id - a2.id,
             clock,
             2000,
             () => {
@@ -96,11 +100,14 @@ export function Client({
         [addEventToList, timeline]
     )
     const createLocalEvent = useCallback(
-        (action: "*2" | "+2") => {
+        (actionType: "*2" | "+2") => {
             const event: Event = {
                 clientId,
                 time: timeline.getCurrentTime(),
-                action,
+                action: {
+                    type: actionType,
+                    id: Math.random(),
+                },
             }
             addEvent(event)
             sendSubject.next(event)
@@ -126,7 +133,8 @@ export function Client({
             <h2>Events in received order</h2>
             {events.map(({ clientId, time, action }, i) => (
                 <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                    <span>{action}</span>
+                    <span>{action.type}</span>
+                    <span>action id: {action.id}</span>
                     <span>Client Id: {clientId}</span>
                     <span>State Time: {time}</span>
                 </div>

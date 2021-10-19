@@ -33,6 +33,7 @@ export default function Continous() {
 type Event = {
     clientId: string
     stateTime: number
+    id: number
 }
 
 const velocity = 0.0001
@@ -66,7 +67,7 @@ export function Client({
                     value: number
                     directionInverted: boolean
                 },
-                undefined
+                number
             >
         >
     >([])
@@ -78,11 +79,11 @@ export function Client({
                     value: number
                     directionInverted: boolean
                 },
-                undefined
+                number
             >
         > = [
             {
-                action: undefined,
+                action: 0,
                 state: {
                     directionInverted: false,
                     value: 0,
@@ -91,7 +92,7 @@ export function Client({
             },
         ]
 
-        const timeline = new ConsistentTimeline(
+        const timeline = new ConsistentTimeline<State, number>(
             baseHistory,
             () => ({ value: 0, directionInverted: false }),
             (state) => (state.directionInverted = !state.directionInverted),
@@ -99,6 +100,7 @@ export function Client({
                 ref.directionInverted = state.directionInverted
                 ref.value = state.value + time * (state.directionInverted ? -velocity : velocity)
             },
+            (a1, a2) => a1 - a2,
             clock,
             2000,
             () => {
@@ -115,32 +117,34 @@ export function Client({
     )
 
     const insert = useCallback(
-        (currentTime: number, stateTime: number) => {
+        (currentTime: number, stateTime: number, id: number) => {
             if (smoothedRef.state != null && smoothedRef.time != null) {
                 const deltaTime = currentTime - smoothedRef.time
                 smoothedRef.state.value += smoothedRef.state.velocity * deltaTime
                 smoothedRef.state.velocity = -smoothedRef.state.velocity
                 smoothedRef.time = currentTime
             }
-            timeline.insert(stateTime, undefined)
+            timeline.insert(stateTime, id)
         },
         [timeline, smoothedRef]
     )
 
     const createLocalEvent = useCallback(() => {
+        const id = Math.random()
         const stateTime = timeline.getCurrentTime()
         const event: Event = {
             clientId,
             stateTime,
+            id,
         }
-        insert(stateTime, stateTime)
+        insert(stateTime, stateTime, id)
         sendSubject.next(event)
     }, [clientId, timeline, sendSubject])
     useEffect(() => {
         const subscription = receiveObservable
             .pipe(
                 delay(incommingMessageDelay),
-                tap((event) => insert(timeline.getCurrentTime(), event.stateTime))
+                tap((event) => insert(timeline.getCurrentTime(), event.stateTime, event.id))
             )
             .subscribe()
         return () => subscription.unsubscribe()
@@ -166,6 +170,7 @@ export function Client({
             {continousTimeline.map((entry, index) => {
                 return (
                     <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
+                        <span>action id: {entry.action.toFixed(3)}</span>
                         <span>time: {entry.stateTime.toFixed(0)}</span>
                         <span>value: {entry.state.value.toFixed(2)}</span>
                     </div>
@@ -180,7 +185,7 @@ function Point({
     smoothedRef,
 }: {
     smoothedRef: { state: SmoothState | undefined; time: number | undefined }
-    timeline: ConsistentTimeline<{ value: number; directionInverted: boolean }, undefined>
+    timeline: ConsistentTimeline<{ value: number; directionInverted: boolean }, number>
 }) {
     const [{ marginLeft, time }, setState] = useState(() => ({
         marginLeft: "0%",
