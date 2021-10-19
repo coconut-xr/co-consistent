@@ -71,7 +71,7 @@ export class ConsistentTimeline<S, A> {
                     state: this.createBaseState(prev.state, prev.stateTime, stateTime, action),
                 }
                 this.history.splice(i + 1, 0, entry)
-                this.reclculate(stateTime, i)
+                this.reclculate(stateTime, i + 1)
                 return () => {
                     const index = this.history.findIndex((e) => e === entry)
                     if (index === -1) {

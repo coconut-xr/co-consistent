@@ -37,10 +37,6 @@ type Event = {
 
 const velocity = 0.0001
 
-function reduce(events: Array<Event>, event: Event): Array<Event> {
-    return [...events, event]
-}
-
 type State = {
     value: number
     directionInverted: boolean

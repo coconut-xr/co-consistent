@@ -1,6 +1,6 @@
 {
     "name": "co-consistent",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "globally consistent event ordering for decentralized distributed systems",
     "scripts": {
         "build": "tsc",
