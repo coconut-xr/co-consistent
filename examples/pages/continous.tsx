@@ -1,4 +1,4 @@
-import { ConsistentTimeline, ContisistentTimelineEntry, StateClock } from "co-consistent"
+import { Universe, StateClock, HistoryEntry } from "co-consistent"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Observable, Subject } from "rxjs"
 import { delay, filter, tap } from "rxjs/operators"
@@ -60,9 +60,9 @@ export function Client({
 }) {
     //const [events, addEventToList] = useReducer(reduce, [])
 
-    const [continousTimeline, setContinousTimeline] = useState<
+    const [history, setHistory] = useState<
         Array<
-            ContisistentTimelineEntry<
+        HistoryEntry<
                 {
                     value: number
                     directionInverted: boolean
@@ -71,10 +71,10 @@ export function Client({
             >
         >
     >([])
-    const timeline = useMemo(() => {
+    const universe = useMemo(() => {
         const clock = new StateClock(timeOffset, () => new Date().getTime())
         const baseHistory: Array<
-            ContisistentTimelineEntry<
+        HistoryEntry<
                 {
                     value: number
                     directionInverted: boolean
@@ -92,10 +92,11 @@ export function Client({
             },
         ]
 
-        const timeline = new ConsistentTimeline<State, number>(
+        const universe = new Universe<State, number>(
             baseHistory,
             () => ({ value: 0, directionInverted: false }),
             (state) => (state.directionInverted = !state.directionInverted),
+            () => true,
             (ref, state, time) => {
                 ref.directionInverted = state.directionInverted
                 ref.value = state.value + time * (state.directionInverted ? -velocity : velocity)
@@ -104,12 +105,12 @@ export function Client({
             clock,
             2000,
             () => {
-                setContinousTimeline([...timeline.history])
+                setHistory([...universe.history])
             }
         )
-        setContinousTimeline([...timeline.history])
-        return timeline
-    }, [setContinousTimeline, timeVelocity, timeOffset])
+        setHistory([...universe.history])
+        return universe
+    }, [setHistory, timeVelocity, timeOffset])
 
     const smoothedRef = useMemo<{ state: SmoothState | undefined; time: number | undefined }>(
         () => ({ state: undefined, time: undefined }),
@@ -124,14 +125,14 @@ export function Client({
                 smoothedRef.state.velocity = -smoothedRef.state.velocity
                 smoothedRef.time = currentTime
             }
-            timeline.insert(stateTime, id)
+            universe.insert(stateTime, id)
         },
-        [timeline, smoothedRef]
+        [universe, smoothedRef]
     )
 
     const createLocalEvent = useCallback(() => {
         const id = Math.random()
-        const stateTime = timeline.getCurrentTime()
+        const stateTime = universe.getCurrentTime()
         const event: Event = {
             clientId,
             stateTime,
@@ -139,16 +140,16 @@ export function Client({
         }
         insert(stateTime, stateTime, id)
         sendSubject.next(event)
-    }, [clientId, timeline, sendSubject])
+    }, [clientId, universe, sendSubject])
     useEffect(() => {
         const subscription = receiveObservable
             .pipe(
                 delay(incommingMessageDelay),
-                tap((event) => insert(timeline.getCurrentTime(), event.stateTime, event.id))
+                tap((event) => insert(universe.getCurrentTime(), event.stateTime, event.id))
             )
             .subscribe()
         return () => subscription.unsubscribe()
-    }, [timeline, clientId, insert])
+    }, [universe, clientId, insert])
 
     return (
         <div
@@ -161,13 +162,13 @@ export function Client({
                 overflow: "hidden",
             }}>
             <div style={{ border: "1px solid" }}>
-                <Point smoothedRef={smoothedRef} timeline={timeline} />
+                <Point smoothedRef={smoothedRef} universe={universe} />
             </div>
             <button onClick={() => createLocalEvent()}>invert</button>
             <span>Time offset: {timeOffset}</span>
             <span>Time velocity: {timeVelocity.toFixed(2)}</span>
             <span>Incomming message delay: {incommingMessageDelay.toFixed(0)}</span>
-            {continousTimeline.map((entry, index) => {
+            {history.map((entry, index) => {
                 return (
                     <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
                         <span>action id: {entry.action.toFixed(3)}</span>
@@ -181,15 +182,15 @@ export function Client({
 }
 
 function Point({
-    timeline,
+    universe,
     smoothedRef,
 }: {
     smoothedRef: { state: SmoothState | undefined; time: number | undefined }
-    timeline: ConsistentTimeline<{ value: number; directionInverted: boolean }, number>
+    universe: Universe<{ value: number; directionInverted: boolean }, number>
 }) {
     const [{ marginLeft, time }, setState] = useState(() => ({
         marginLeft: "0%",
-        time: timeline.getCurrentTime(),
+        time: universe.getCurrentTime(),
     }))
     useEffect(() => {
         const realState: State = {
@@ -197,9 +198,9 @@ function Point({
             directionInverted: false,
         }
         const ref = window.setInterval(() => {
-            const realStateTime = timeline.getCurrentTime()
-            const entry = timeline.history[timeline.history.length - 1]
-            timeline.applyStateAt(realState, entry.state, entry.stateTime, realStateTime)
+            const realStateTime = universe.getCurrentTime()
+            const entry = universe.history[universe.history.length - 1]
+            universe.applyStateAt(realState, entry.state, entry.stateTime, realStateTime)
             if (smoothedRef.state == null || smoothedRef.time == null) {
                 smoothedRef.state = {
                     value: realState.value,

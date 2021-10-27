@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { ConsistentTimeline, ContisistentTimelineEntry, StateClock, StateType } from "co-consistent"
+import { StateClock, Universe, HistoryEntry } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -62,12 +62,12 @@ export function Client({
     receiveObservable: Observable<Event>
 }) {
     const [events, addEventToList] = useReducer(reduce, [])
-    const [consistentTimeline, setConsistentTimeline] = useState<Array<ContisistentTimelineEntry<State, Action>>>([])
+    const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
     const [result, setResult] = useState(0)
-    const timeline = useMemo(() => {
+    const universe = useMemo(() => {
         const clock = new StateClock(timeOffset, () => new Date().getTime() + timeOffset)
         const ref: State = { value: 0 }
-        const baseHistory: Array<ContisistentTimelineEntry<State, Action>> = [
+        const baseHistory: Array<HistoryEntry<State, Action>> = [
             {
                 action: null as any,
                 state: {
@@ -76,34 +76,35 @@ export function Client({
                 stateTime: 0,
             },
         ]
-        const timeline = new ConsistentTimeline<State, Action>(
+        const universe = new Universe<State, Action>(
             baseHistory,
             () => ({ value: 0 }),
             (ref, action) => (action.type === "*2" ? (ref.value *= 2) : (ref.value += 2)),
+            () => true,
             (ref, state) => (ref.value = state.value),
             (a1, a2) => a1.id - a2.id,
             clock,
             2000,
             () => {
-                timeline.applyCurrentState(ref)
+                universe.applyCurrentState(ref)
                 setResult(ref.value)
-                setConsistentTimeline(timeline.history)
+                setHistory(universe.history)
             }
         )
-        return timeline
-    }, [setResult, timeOffset, setConsistentTimeline])
+        return universe
+    }, [setResult, timeOffset, setHistory])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            timeline.insert(event.time, event.action)
+            universe.insert(event.time, event.action)
         },
-        [addEventToList, timeline]
+        [addEventToList, universe]
     )
     const createLocalEvent = useCallback(
         (actionType: "*2" | "+2") => {
             const event: Event = {
                 clientId,
-                time: timeline.getCurrentTime(),
+                time: universe.getCurrentTime(),
                 action: {
                     type: actionType,
                     id: Math.random(),
@@ -112,7 +113,7 @@ export function Client({
             addEvent(event)
             sendSubject.next(event)
         },
-        [clientId, timeline, sendSubject, addEvent]
+        [clientId, universe, sendSubject, addEvent]
     )
     useEffect(() => {
         const subscription = receiveObservable.subscribe(addEvent)
@@ -139,8 +140,8 @@ export function Client({
                     <span>State Time: {time}</span>
                 </div>
             ))}
-            <h2>Established Timeline</h2>
-            {consistentTimeline.map(({ state, stateTime }, i) => {
+            <h2>Established History</h2>
+            {history.map(({ state, stateTime }, i) => {
                 return (
                     <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
                         <span>state: {state.value}</span>
