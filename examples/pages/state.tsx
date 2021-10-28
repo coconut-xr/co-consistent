@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { StateClock, Universe, HistoryEntry } from "co-consistent"
+import { Universe, HistoryEntry } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -46,7 +46,7 @@ type State = {
 }
 
 type Action = {
-    type: "+2" | "*2"
+    type: "+2" | "*2" | "init"
     id: number
 }
 
@@ -65,38 +65,57 @@ export function Client({
     const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
     const [result, setResult] = useState(0)
     const universe = useMemo(() => {
-        const clock = new StateClock(timeOffset, () => new Date().getTime() + timeOffset)
-        const ref: State = { value: 0 }
-        const baseHistory: Array<HistoryEntry<State, Action>> = [
-            {
-                action: null as any,
-                state: {
-                    value: 0,
-                },
-                stateTime: 0,
+        const ref: State = {
+            value: 0,
+        }
+        const universe: Universe<State, Action> = new Universe<State, Action>(
+            timeOffset,
+            () => new Date().getTime(),
+            (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
+                if (base == null || action?.type === "init") {
+                    return
+                }
+                if (action == null) {
+                    cachedResult.value = base.value
+                    return
+                }
+                if (base.value !== cachedBase?.value) {
+                    if (action.type === "*2") {
+                        cachedResult.value = base.value * 2
+                    } else {
+                        cachedResult.value = base.value + 2
+                    }
+                }
             },
-        ]
-        const universe = new Universe<State, Action>(
-            baseHistory,
-            () => ({ value: 0 }),
-            (ref, action) => (action.type === "*2" ? (ref.value *= 2) : (ref.value += 2)),
-            () => true,
-            (ref, state) => (ref.value = state.value),
             (a1, a2) => a1.id - a2.id,
-            clock,
+            (from, to) => {
+                to.value = from.value
+            },
             2000,
             () => {
                 universe.applyCurrentState(ref)
+                setHistory([...universe.history])
                 setResult(ref.value)
-                setHistory(universe.history)
             }
         )
+        universe.insert(
+            {
+                id: Math.random(),
+                type: "init",
+            },
+            0,
+            {
+                value: 0,
+            }
+        )
+        universe.applyCurrentState(ref)
+        setResult(ref.value)
         return universe
     }, [setResult, timeOffset, setHistory])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            universe.insert(event.time, event.action)
+            universe.insert(event.action, event.time)
         },
         [addEventToList, universe]
     )
@@ -141,12 +160,13 @@ export function Client({
                 </div>
             ))}
             <h2>Established History</h2>
-            {history.map(({ state, stateTime }, i) => {
+            {history.map(({ result, time, action }, i) => {
                 return (
                     <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                        <span>state: {state.value}</span>
-                        <span>Client Id: {clientId}</span>
-                        <span>State Time: {stateTime}</span>
+                        <span>{action.type}</span>
+                        <span>action id: {action.id}</span>
+                        <span>result: {result.value}</span>
+                        <span>State Time: {time}</span>
                     </div>
                 )
             })}

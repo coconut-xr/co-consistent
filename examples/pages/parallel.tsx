@@ -42,12 +42,12 @@ function reduce(events: Array<Event>, event: Event): Array<Event> {
 }
 
 type State = {
-    x: number,
+    x: number
     y: number
 }
 
 type Action = {
-    type: "x++" | "y++"
+    type: "x++" | "y++" | "init"
     id: number
 }
 
@@ -67,43 +67,59 @@ export function Client({
     const [x, setX] = useState(0)
     const [y, setY] = useState(0)
     const universe = useMemo(() => {
-        const clock = new StateClock(timeOffset, () => new Date().getTime() + timeOffset)
         const ref: State = { x: 0, y: 0 }
-        const baseHistory: Array<HistoryEntry<State, Action>> = [
-            {
-                action: null as any,
-                state: {
-                    x: 0,
-                    y: 0
-                },
-                stateTime: 0,
-            },
-        ]
         const universe = new Universe<State, Action>(
-            baseHistory,
-            () => ({ x: 0, y: 0 }),
-            (ref, action) => (action.type === "x++" ? (ref.x++) : (ref.y++)),
-            (cur, prev, action) => action.type === "x++" ? cur.x !== prev.x : cur.y !== prev.y,
-            (ref, state) => {
-                ref.x = state.x
-                ref.y = state.y
+            timeOffset,
+            () => new Date().getTime(),
+            (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
+                if (action?.type === "init" || base == null) {
+                    return
+                }
+                if (action == null) {
+                    cachedResult.x = base.x
+                    cachedResult.y = base.y
+                    return
+                }
+                if (base.x !== cachedBase?.x) {
+                    cachedResult.x = action.type === "x++" ? base.x + 1 : base.x
+                }
+                if (base.y !== cachedBase?.y) {
+                    cachedResult.y = action.type === "y++" ? base.y + 1 : base.y
+                }
             },
             (a1, a2) => a1.id - a2.id,
-            clock,
+            (from, to) => {
+                to.x = from.x
+                to.y = from.y
+            },
             2000,
             () => {
                 universe.applyCurrentState(ref)
+                setHistory([...universe.history])
                 setX(ref.x)
                 setY(ref.y)
-                setHistory(universe.history)
             }
         )
+        universe.insert(
+            {
+                id: Math.random(),
+                type: "init",
+            },
+            0,
+            {
+                x: 0,
+                y: 0,
+            }
+        )
+        universe.applyCurrentState(ref)
+        setX(ref.x)
+        setY(ref.y)
         return universe
     }, [setX, setY, timeOffset, setHistory])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            universe.insert(event.time, event.action)
+            universe.insert(event.action, event.time)
         },
         [addEventToList, universe]
     )
@@ -148,12 +164,13 @@ export function Client({
                 </div>
             ))}
             <h2>Established History</h2>
-            {history.map(({ state, stateTime }, i) => {
+            {history.map(({ time, result }, i) => {
                 return (
                     <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                        <span>state: x: {state.x}, y: {state.y}</span>
-                        <span>Client Id: {clientId}</span>
-                        <span>State Time: {stateTime}</span>
+                        <span>
+                            result: x: {result.x}, y: {result.y}
+                        </span>
+                        <span>State Time: {time}</span>
                     </div>
                 )
             })}

@@ -43,6 +43,11 @@ type State = {
     directionInverted: boolean
 }
 
+type Action = {
+    type: "init" | "invert"
+    id: number
+}
+
 export function Client({
     clientId,
     sendSubject,
@@ -60,52 +65,45 @@ export function Client({
 }) {
     //const [events, addEventToList] = useReducer(reduce, [])
 
-    const [history, setHistory] = useState<
-        Array<
-        HistoryEntry<
-                {
-                    value: number
-                    directionInverted: boolean
-                },
-                number
-            >
-        >
-    >([])
+    const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
     const universe = useMemo(() => {
-        const clock = new StateClock(timeOffset, () => new Date().getTime())
-        const baseHistory: Array<
-        HistoryEntry<
-                {
-                    value: number
-                    directionInverted: boolean
-                },
-                number
-            >
-        > = [
-            {
-                action: 0,
-                state: {
-                    directionInverted: false,
-                    value: 0,
-                },
-                stateTime: 0,
+        const universe = new Universe<State, Action>(
+            timeOffset,
+            () => new Date().getTime(),
+            (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
+                if (action?.type === "init" || base == null) {
+                    return
+                }
+                if (
+                    action?.type == "invert" &&
+                    base.directionInverted === cachedBase?.directionInverted &&
+                    base.value === cachedBase?.value &&
+                    cachedDeltaTime === deltaTime
+                ) {
+                    return
+                }
+                cachedResult.value = base.value + deltaTime * (base.directionInverted ? -velocity : velocity)
+                cachedResult.directionInverted = action == null ? base.directionInverted : !base.directionInverted
             },
-        ]
-
-        const universe = new Universe<State, number>(
-            baseHistory,
-            () => ({ value: 0, directionInverted: false }),
-            (state) => (state.directionInverted = !state.directionInverted),
-            () => true,
-            (ref, state, time) => {
-                ref.directionInverted = state.directionInverted
-                ref.value = state.value + time * (state.directionInverted ? -velocity : velocity)
+            (a1, a2) => a1.id - a2.id,
+            (from, to) => {
+                to.directionInverted = from.directionInverted
+                to.value = from.value
             },
-            (a1, a2) => a1 - a2,
-            clock,
             2000,
             () => {
                 setHistory([...universe.history])
+            }
+        )
+        universe.insert(
+            {
+                id: Math.random(),
+                type: "init",
+            },
+            0,
+            {
+                directionInverted: false,
+                value: 0,
             }
         )
         setHistory([...universe.history])
@@ -125,7 +123,13 @@ export function Client({
                 smoothedRef.state.velocity = -smoothedRef.state.velocity
                 smoothedRef.time = currentTime
             }
-            universe.insert(stateTime, id)
+            universe.insert(
+                {
+                    type: "invert",
+                    id,
+                },
+                stateTime
+            )
         },
         [universe, smoothedRef]
     )
@@ -171,9 +175,9 @@ export function Client({
             {history.map((entry, index) => {
                 return (
                     <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
-                        <span>action id: {entry.action.toFixed(3)}</span>
-                        <span>time: {entry.stateTime.toFixed(0)}</span>
-                        <span>value: {entry.state.value.toFixed(2)}</span>
+                        <span>action id: {entry.action.id.toFixed(3)}</span>
+                        <span>time: {entry.time.toFixed(0)}</span>
+                        <span>value: {entry.result.value?.toFixed(2)}</span>
                     </div>
                 )
             })}
@@ -186,7 +190,7 @@ function Point({
     smoothedRef,
 }: {
     smoothedRef: { state: SmoothState | undefined; time: number | undefined }
-    universe: Universe<{ value: number; directionInverted: boolean }, number>
+    universe: Universe<State, Action>
 }) {
     const [{ marginLeft, time }, setState] = useState(() => ({
         marginLeft: "0%",
@@ -200,7 +204,7 @@ function Point({
         const ref = window.setInterval(() => {
             const realStateTime = universe.getCurrentTime()
             const entry = universe.history[universe.history.length - 1]
-            universe.applyStateAt(realState, entry.state, entry.stateTime, realStateTime)
+            universe.applyStateAt(realState, entry, realStateTime)
             if (smoothedRef.state == null || smoothedRef.time == null) {
                 smoothedRef.state = {
                     value: realState.value,

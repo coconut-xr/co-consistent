@@ -1,123 +1,145 @@
 import { StateClock } from "."
 
 export class Universe<S, A> {
-
-    
+    private readonly clock: StateClock
     public readonly history: Array<HistoryEntry<S, A>> = []
 
+    private readonly baseHelper1 = {} as S
+    private readonly baseHelper2 = {} as S
+
     constructor(
-        private readonly createState: () => S,
-        private readonly applyAction: (ref: S, action: A) => void,
-        private readonly checkActionDependencyChange: (cur: S, prev: S, action: A) => boolean,
-        private readonly applyExtrapolatedState: (ref: S, state: S, time: number) => void,
-        /**
-         * deterministic comparison to sort actions (return 0 when action is equal)
-         */
+        time: number,
+        getRealTime: () => number,
+        private readonly fixResult: (
+            base: S | undefined,
+            deltaTime: number,
+            action: A | undefined,
+            cachedDeltaTime: number | undefined,
+            cachedBase: S | undefined,
+            cachedResult: S
+        ) => void,
         private readonly compareAction: (a1: A, a2: A) => number,
-        private readonly clock: StateClock,
+        private readonly copyState: (from: S, to: S) => void,
         private readonly historyDuration: number,
         private readonly onChange?: () => void
-    ) {}
-
-    applyCurrentState(ref: S): void {
-        const time = this.clock.getCurrentTime()
-        const current = this.history[this.history.length - 1]
-        this.applyStateAt(ref, current.state, current.stateTime, time)
-    }
-
-    private removeOldElements(currentTime: number): void {
-        let i = 0
-        while (i < this.history.length - 1 && currentTime - this.history[i + 1].stateTime > this.historyDuration) {
-            i++
-        }
-        this.history.splice(0, i)
+    ) {
+        this.clock = new StateClock(time, getRealTime)
     }
 
     getCurrentTime(): number {
         return this.clock.getCurrentTime()
     }
 
-    insertState(): void {
-
+    private removeOldElements(currentTime: number): void {
+        let i = 0
+        while (i < this.history.length - 1 && currentTime - this.history[i + 1].time > this.historyDuration) {
+            i++
+        }
+        this.history.splice(0, i)
     }
 
     /**
-     * @returns 'false' if the action is already contained (stateTime equal & compareAction function returns 0)
+     * @returns false if the action is already included in the history
      */
-    insertAction(stateTime: number, action: A): boolean {
+    insert(action: A, time?: number, result?: S): boolean {
         const currentTime = this.clock.getCurrentTime()
+
         this.removeOldElements(currentTime)
 
-        for (let i = this.history.length - 1; i >= 0; i--) {
-            const prev = this.history[i]
-            let comparison = prev.stateTime - stateTime
-            if (comparison === 0) {
-                comparison = this.compareAction(prev.action, action)
-                if (comparison === 0) {
-                    return false
-                }
-            }
-            if (comparison < 0) {
-                if (currentTime < stateTime) {
-                    this.clock.jump(stateTime - currentTime)
-                }
-                const entry: HistoryEntry<S, A> = {
-                    stateTime,
-                    action,
-                    state: this.createBaseState(prev.state, prev.stateTime, stateTime, action),
-                }
-                this.history.splice(i + 1, 0, entry)
-                this.reclculate(i + 1)
-                return true
-            }
+        if (time == null) {
+            time = currentTime
+        } else if (time > currentTime) {
+            this.clock.jump(time - currentTime)
         }
-        throw `event too old to insert (try to insert at: ${stateTime}, current time: ${currentTime})`
+        let indexToInsertAfter = this.findEntryIndexBefore(time, action)
+        if (indexToInsertAfter === -1) {
+            return false
+        }
+        let base: S | undefined
+        let deltaTime = 0
+        if (indexToInsertAfter === -2) {
+            if (result == null) {
+                throw `unable to insert action at time: ${time} (too old)`
+            }
+            indexToInsertAfter = -1
+        } else {
+            const prevEntry = this.history[indexToInsertAfter]
+            base = prevEntry.result
+            deltaTime = time - prevEntry.time
+        }
+
+        if (result == null) {
+            result = {} as S
+            this.fixResult(base, deltaTime, action, undefined, undefined, result)
+        }
+
+        this.history.splice(indexToInsertAfter + 1, 0, {
+            action,
+            time,
+            result,
+            deltaTime,
+        })
+        this.recalculateAfter(indexToInsertAfter + 1, this.history[indexToInsertAfter]?.result)
+        return true
     }
 
-    private insertEntry(): void {
-        
+    private recalculateAfter(index: number, oldPrevResult?: S): void {
+        if (index < this.history.length - 1) {
+            const prevEntry = this.history[index]
+            const currentEntry = this.history[index + 1]
+            const deltaTime = currentEntry.time - prevEntry.time
+            const nextOldPrevResult = this.baseHelper1 === oldPrevResult ? this.baseHelper2 : this.baseHelper1
+            this.copyState(currentEntry.result, nextOldPrevResult)
+            this.fixResult(
+                prevEntry.result,
+                deltaTime,
+                currentEntry.action,
+                currentEntry.deltaTime,
+                oldPrevResult,
+                currentEntry.result
+            )
+            this.recalculateAfter(index + 1, nextOldPrevResult)
+        } else {
+            this.onChange && this.onChange()
+        }
     }
 
     /**
-     *
-     * @param stateTime
-     * @param fromIndex the index of the entry after which potential changes can happen
+     * @returns the index (>0); -1 when the action is already in the history; -2 when the action is too old to insert
      */
-    private reclculate(fromIndex: number): void {
-        let prevState: S = this.history[fromIndex - 1].state
-        for (let i = fromIndex + 1; i < this.history.length; i++) {
-            const prev = this.history[i - 1]
-            const current = this.history[i]
-            const currentActionDependencyChanged = this.checkActionDependencyChange(
-                prev.state,
-                prevState,
-                current.action
-            )
-            prevState = current.state
-            if (currentActionDependencyChanged) {
-                current.state = this.createBaseState(prev.state, prev.stateTime, current.stateTime, current.action)
+    private findEntryIndexBefore(time: number, action?: A): number {
+        for (let i = this.history.length - 1; i >= 0; i--) {
+            const historyEntry = this.history[i]
+            if (historyEntry.time <= time) {
+                if (historyEntry.time === time && action != null) {
+                    const actionComparison = this.compareAction(historyEntry.action, action)
+                    if (actionComparison > 0) {
+                        continue
+                    } else if (actionComparison === 0) {
+                        return -1
+                    }
+                }
+                return i
             }
         }
-        this.onChange && this.onChange()
+        return -2
     }
 
-    private createBaseState(prevState: S, prevStateTime: number, baseStateTime: number, action: A): S {
-        const result = this.createState()
-        this.applyStateAt(result, prevState, prevStateTime, baseStateTime)
-        this.applyAction(result, action)
-        return result
-    }
-
-    applyStateAt(ref: S, state: S, stateStateTime: number, currentStateTime: number): void {
-        if (currentStateTime < stateStateTime) {
-            throw "can't extrapolate an state into the past"
+    public applyStateAt(ref: S, historyEntry: HistoryEntry<S, A>, time: number): void {
+        if (time < historyEntry.time) {
+            throw "can't extrapolate state into the past"
         }
-        this.applyExtrapolatedState(ref, state, currentStateTime - stateStateTime)
+        this.fixResult(historyEntry.result, time - historyEntry.time, undefined, undefined, undefined, ref)
+    }
+
+    applyCurrentState(ref: S): void {
+        this.applyStateAt(ref, this.history[this.history.length - 1], this.clock.getCurrentTime())
     }
 }
 
 export type HistoryEntry<S, A> = {
-    state: S
-    stateTime: number
+    time: number
     action: A
+    result: S
+    deltaTime: number
 }
