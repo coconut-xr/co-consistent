@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { Universe, HistoryEntry } from "co-consistent"
+import { Universe, HistoryEntry, Clock } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -64,13 +64,12 @@ export function Client({
     const [events, addEventToList] = useReducer(reduce, [])
     const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
     const [result, setResult] = useState(0)
+    const clock = useMemo(() => new Clock(timeOffset, () => global.window == null ? 0 :window.performance.now()), [timeOffset])
     const universe = useMemo(() => {
         const ref: State = {
             value: 0,
         }
         const universe: Universe<State, Action> = new Universe<State, Action>(
-            timeOffset,
-            () => new Date().getTime(),
             (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
                 if (base == null || action?.type === "init") {
                     return
@@ -93,7 +92,7 @@ export function Client({
             },
             2000,
             () => {
-                universe.applyCurrentState(ref)
+                universe.applyCurrentState(ref, clock.getCurrentTime())
                 setHistory([...universe.history])
                 setResult(ref.value)
             }
@@ -103,15 +102,16 @@ export function Client({
                 id: Math.random(),
                 type: "init",
             },
+            clock.getCurrentTime(),
             0,
             {
                 value: 0,
             }
         )
-        universe.applyCurrentState(ref)
+        universe.applyCurrentState(ref, clock.getCurrentTime())
         setResult(ref.value)
         return universe
-    }, [setResult, timeOffset, setHistory])
+    }, [setResult, timeOffset, setHistory, clock])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
@@ -123,7 +123,7 @@ export function Client({
         (actionType: "*2" | "+2") => {
             const event: Event = {
                 clientId,
-                time: universe.getCurrentTime(),
+                time: clock.getCurrentTime(),
                 action: {
                     type: actionType,
                     id: Math.random(),
@@ -132,7 +132,7 @@ export function Client({
             addEvent(event)
             sendSubject.next(event)
         },
-        [clientId, universe, sendSubject, addEvent]
+        [clock, clientId, universe, sendSubject, addEvent]
     )
     useEffect(() => {
         const subscription = receiveObservable.subscribe(addEvent)

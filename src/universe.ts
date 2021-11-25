@@ -1,15 +1,12 @@
-import { StateClock } from "."
+import { Clock } from "."
 
 export class Universe<S, A> {
-    private readonly clock: StateClock
     public readonly history: Array<HistoryEntry<S, A>> = []
 
     private readonly baseHelper1 = {} as S
     private readonly baseHelper2 = {} as S
 
     constructor(
-        time: number,
-        getRealTime: () => number,
         private readonly fixResult: (
             base: S | undefined,
             deltaTime: number,
@@ -22,13 +19,7 @@ export class Universe<S, A> {
         private readonly copyState: (from: S, to: S) => void,
         private readonly historyDuration: number,
         private readonly onChange?: () => void
-    ) {
-        this.clock = new StateClock(time, getRealTime)
-    }
-
-    getCurrentTime(): number {
-        return this.clock.getCurrentTime()
-    }
+    ) {}
 
     private removeOldElements(currentTime: number): void {
         let i = 0
@@ -41,15 +32,13 @@ export class Universe<S, A> {
     /**
      * @returns false if the action is already included in the history
      */
-    insert(action: A, time?: number, result?: S): boolean {
-        const currentTime = this.clock.getCurrentTime()
-
+    insert(action: A, currentTime: number, time?: number, result?: S): boolean {
         this.removeOldElements(currentTime)
 
         if (time == null) {
             time = currentTime
         } else if (time > currentTime) {
-            this.clock.jump(time - currentTime)
+            throw `time (${time}) can't be bigger then current time (${currentTime}) (maybe jump the clock forwards?)`
         }
         let indexToInsertAfter = this.findEntryIndexBefore(time, action)
         if (indexToInsertAfter === -1) {
@@ -132,8 +121,8 @@ export class Universe<S, A> {
         this.fixResult(historyEntry.result, time - historyEntry.time, undefined, undefined, undefined, ref)
     }
 
-    applyCurrentState(ref: S): void {
-        this.applyStateAt(ref, this.history[this.history.length - 1], this.clock.getCurrentTime())
+    applyCurrentState(ref: S, currentTime: number): void {
+        this.applyStateAt(ref, this.history[this.history.length - 1], currentTime)
     }
 }
 

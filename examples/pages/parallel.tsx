@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { StateClock, Universe, HistoryEntry } from "co-consistent"
+import { Clock, Universe, HistoryEntry } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -66,11 +66,10 @@ export function Client({
     const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
     const [x, setX] = useState(0)
     const [y, setY] = useState(0)
+    const clock = useMemo(() => new Clock(timeOffset, () => global.window == null ? 0 :window.performance.now()), [timeOffset])
     const universe = useMemo(() => {
         const ref: State = { x: 0, y: 0 }
         const universe = new Universe<State, Action>(
-            timeOffset,
-            () => new Date().getTime(),
             (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
                 if (action?.type === "init" || base == null) {
                     return
@@ -94,7 +93,7 @@ export function Client({
             },
             2000,
             () => {
-                universe.applyCurrentState(ref)
+                universe.applyCurrentState(ref, clock.getCurrentTime())
                 setHistory([...universe.history])
                 setX(ref.x)
                 setY(ref.y)
@@ -105,29 +104,35 @@ export function Client({
                 id: Math.random(),
                 type: "init",
             },
+            clock.getCurrentTime(),
             0,
             {
                 x: 0,
                 y: 0,
             }
         )
-        universe.applyCurrentState(ref)
+        universe.applyCurrentState(ref, clock.getCurrentTime())
         setX(ref.x)
         setY(ref.y)
         return universe
-    }, [setX, setY, timeOffset, setHistory])
+    }, [clock, setX, setY, timeOffset, setHistory])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            universe.insert(event.action, event.time)
+            let currentTime = clock.getCurrentTime()
+            if(event.time > currentTime) {
+                clock.jump(event.time - currentTime)
+                currentTime = clock.getCurrentTime()
+            }
+            universe.insert(event.action, currentTime, event.time)
         },
-        [addEventToList, universe]
+        [addEventToList, universe, clock]
     )
     const createLocalEvent = useCallback(
         (actionType: "x++" | "y++") => {
             const event: Event = {
                 clientId,
-                time: universe.getCurrentTime(),
+                time: clock.getCurrentTime(),
                 action: {
                     type: actionType,
                     id: Math.random(),
@@ -136,7 +141,7 @@ export function Client({
             addEvent(event)
             sendSubject.next(event)
         },
-        [clientId, universe, sendSubject, addEvent]
+        [clientId, clock, sendSubject, addEvent]
     )
     useEffect(() => {
         const subscription = receiveObservable.subscribe(addEvent)

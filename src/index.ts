@@ -1,2 +1,2 @@
-export * from "./state-clock"
+export * from "./clock"
 export * from "./universe"

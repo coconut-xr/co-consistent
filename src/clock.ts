@@ -1,4 +1,4 @@
-export class StateClock {
+export class Clock {
     private realTimeAtStateTime: number
 
     constructor(private stateTime: number, private readonly getRealTime: () => number, private stateTimeVelocity = 1) {
