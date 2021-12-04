@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { Clock, Universe, HistoryEntry } from "co-consistent"
+import { Clock, Universe, HistoryEntry, State } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -41,9 +41,36 @@ function reduce(events: Array<Event>, event: Event): Array<Event> {
     return [...events, event]
 }
 
-type State = {
-    x: number
-    y: number
+class ParallelState implements State<Action> {
+    constructor(public x: number, public y: number) {}
+
+    update(
+        base: this | undefined,
+        deltaTime: number,
+        action: Action | undefined,
+        prevDeltaTime: number | undefined,
+        prevBase: this | undefined
+    ): void {
+        if (action?.type === "init" || base == null) {
+            return
+        }
+        if (action == null) {
+            this.x = base.x
+            this.y = base.y
+            return
+        }
+        if (base.x !== prevBase?.x) {
+            this.x = action.type === "x++" ? base.x + 1 : base.x
+        }
+        if (base.y !== prevBase?.y) {
+            this.y = action.type === "y++" ? base.y + 1 : base.y
+        }
+    }
+
+    copyFrom(ref: this): void {
+        this.x = ref.x
+        this.y = ref.y
+    }
 }
 
 type Action = {
@@ -63,34 +90,18 @@ export function Client({
     receiveObservable: Observable<Event>
 }) {
     const [events, addEventToList] = useReducer(reduce, [])
-    const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
+    const [history, setHistory] = useState<Array<HistoryEntry<ParallelState, Action>>>([])
     const [x, setX] = useState(0)
     const [y, setY] = useState(0)
-    const clock = useMemo(() => new Clock(timeOffset, () => global.window == null ? 0 :window.performance.now()), [timeOffset])
+    const clock = useMemo(
+        () => new Clock(timeOffset, () => (global.window == null ? 0 : window.performance.now())),
+        [timeOffset]
+    )
     const universe = useMemo(() => {
-        const ref: State = { x: 0, y: 0 }
-        const universe = new Universe<State, Action>(
-            (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
-                if (action?.type === "init" || base == null) {
-                    return
-                }
-                if (action == null) {
-                    cachedResult.x = base.x
-                    cachedResult.y = base.y
-                    return
-                }
-                if (base.x !== cachedBase?.x) {
-                    cachedResult.x = action.type === "x++" ? base.x + 1 : base.x
-                }
-                if (base.y !== cachedBase?.y) {
-                    cachedResult.y = action.type === "y++" ? base.y + 1 : base.y
-                }
-            },
+        const ref = new ParallelState(0, 0)
+        const universe = new Universe(
+            () => new ParallelState(0, 0),
             (a1, a2) => a1.id - a2.id,
-            (from, to) => {
-                to.x = from.x
-                to.y = from.y
-            },
             2000,
             () => {
                 universe.applyCurrentState(ref, clock.getCurrentTime())
@@ -106,10 +117,7 @@ export function Client({
             },
             clock.getCurrentTime(),
             0,
-            {
-                x: 0,
-                y: 0,
-            }
+            new ParallelState(0, 0)
         )
         universe.applyCurrentState(ref, clock.getCurrentTime())
         setX(ref.x)
@@ -120,7 +128,7 @@ export function Client({
         (event: Event) => {
             addEventToList(event)
             let currentTime = clock.getCurrentTime()
-            if(event.time > currentTime) {
+            if (event.time > currentTime) {
                 clock.jump(event.time - currentTime)
                 currentTime = clock.getCurrentTime()
             }

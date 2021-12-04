@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { Universe, HistoryEntry, Clock } from "co-consistent"
+import { Universe, HistoryEntry, Clock, State } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 
@@ -41,8 +41,34 @@ function reduce(events: Array<Event>, event: Event): Array<Event> {
     return [...events, event]
 }
 
-type State = {
-    value: number
+class ValueState implements State<Action> {
+    constructor(public value: number) {}
+
+    update(
+        base: this | undefined,
+        deltaTime: number,
+        action: Action | undefined,
+        prevDeltaTime: number | undefined,
+        prevBase: this | undefined
+    ): void {
+        if (base == null || action?.type === "init") {
+            return
+        }
+        if (action == null) {
+            this.value = base.value
+            return
+        }
+        if (base.value !== prevBase?.value) {
+            if (action.type === "*2") {
+                this.value = base.value * 2
+            } else {
+                this.value = base.value + 2
+            }
+        }
+    }
+    copyFrom(ref: this): void {
+        this.value = ref.value
+    }
 }
 
 type Action = {
@@ -62,34 +88,17 @@ export function Client({
     receiveObservable: Observable<Event>
 }) {
     const [events, addEventToList] = useReducer(reduce, [])
-    const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
+    const [history, setHistory] = useState<Array<HistoryEntry<ValueState, Action>>>([])
     const [result, setResult] = useState(0)
-    const clock = useMemo(() => new Clock(timeOffset, () => global.window == null ? 0 :window.performance.now()), [timeOffset])
+    const clock = useMemo(
+        () => new Clock(timeOffset, () => (global.window == null ? 0 : window.performance.now())),
+        [timeOffset]
+    )
     const universe = useMemo(() => {
-        const ref: State = {
-            value: 0,
-        }
-        const universe: Universe<State, Action> = new Universe<State, Action>(
-            (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
-                if (base == null || action?.type === "init") {
-                    return
-                }
-                if (action == null) {
-                    cachedResult.value = base.value
-                    return
-                }
-                if (base.value !== cachedBase?.value) {
-                    if (action.type === "*2") {
-                        cachedResult.value = base.value * 2
-                    } else {
-                        cachedResult.value = base.value + 2
-                    }
-                }
-            },
+        const ref = new ValueState(0)
+        const universe = new Universe(
+            () => new ValueState(0),
             (a1, a2) => a1.id - a2.id,
-            (from, to) => {
-                to.value = from.value
-            },
             2000,
             () => {
                 universe.applyCurrentState(ref, clock.getCurrentTime())
@@ -104,9 +113,7 @@ export function Client({
             },
             clock.getCurrentTime(),
             0,
-            {
-                value: 0,
-            }
+            new ValueState(0)
         )
         universe.applyCurrentState(ref, clock.getCurrentTime())
         setResult(ref.value)

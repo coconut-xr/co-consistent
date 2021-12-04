@@ -1,4 +1,4 @@
-import { Universe, Clock, HistoryEntry } from "co-consistent"
+import { Universe, Clock, HistoryEntry, State } from "co-consistent"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Observable, Subject } from "rxjs"
 import { delay, filter, tap } from "rxjs/operators"
@@ -38,14 +38,40 @@ type Event = {
 
 const velocity = 0.0001
 
-type State = {
-    value: number
-    directionInverted: boolean
-}
-
 type Action = {
     type: "init" | "invert"
     id: number
+}
+
+class ContinousState implements State<Action> {
+    constructor(public value: number, public directionInverted: boolean) {}
+
+    update(
+        base: this | undefined,
+        deltaTime: number,
+        action: Action | undefined,
+        prevDeltaTime: number | undefined,
+        prevBase: this | undefined
+    ): void {
+        if (action?.type === "init" || base == null) {
+            return
+        }
+        if (
+            action?.type == "invert" &&
+            base.directionInverted === prevBase?.directionInverted &&
+            base.value === prevBase?.value &&
+            prevDeltaTime === deltaTime
+        ) {
+            return
+        }
+        this.value = base.value + deltaTime * (base.directionInverted ? -velocity : velocity)
+        this.directionInverted = action == null ? base.directionInverted : !base.directionInverted
+    }
+
+    copyFrom(ref: this): void {
+        this.directionInverted = ref.directionInverted
+        this.value = ref.value
+    }
 }
 
 export function Client({
@@ -64,30 +90,15 @@ export function Client({
     receiveObservable: Observable<Event>
 }) {
     //const [events, addEventToList] = useReducer(reduce, [])
-    const clock = useMemo(() => new Clock(timeOffset, () => global.window == null ? 0 : window.performance.now()), [timeOffset])
-    const [history, setHistory] = useState<Array<HistoryEntry<State, Action>>>([])
+    const clock = useMemo(
+        () => new Clock(timeOffset, () => (global.window == null ? 0 : window.performance.now())),
+        [timeOffset]
+    )
+    const [history, setHistory] = useState<Array<HistoryEntry<ContinousState, Action>>>([])
     const universe = useMemo(() => {
-        const universe = new Universe<State, Action>(
-            (base, deltaTime, action, cachedDeltaTime, cachedBase, cachedResult) => {
-                if (action?.type === "init" || base == null) {
-                    return
-                }
-                if (
-                    action?.type == "invert" &&
-                    base.directionInverted === cachedBase?.directionInverted &&
-                    base.value === cachedBase?.value &&
-                    cachedDeltaTime === deltaTime
-                ) {
-                    return
-                }
-                cachedResult.value = base.value + deltaTime * (base.directionInverted ? -velocity : velocity)
-                cachedResult.directionInverted = action == null ? base.directionInverted : !base.directionInverted
-            },
+        const universe = new Universe(
+            () => new ContinousState(0, false),
             (a1, a2) => a1.id - a2.id,
-            (from, to) => {
-                to.directionInverted = from.directionInverted
-                to.value = from.value
-            },
             2000,
             () => {
                 setHistory([...universe.history])
@@ -100,10 +111,7 @@ export function Client({
             },
             clock.getCurrentTime(),
             0,
-            {
-                directionInverted: false,
-                value: 0,
-            }
+            new ContinousState(0, false)
         )
         setHistory([...universe.history])
         return universe
@@ -199,7 +207,7 @@ function Point({
     clock,
 }: {
     smoothedRef: { state: SmoothState | undefined; time: number | undefined }
-    universe: Universe<State, Action>
+    universe: Universe<ContinousState>
     clock: Clock
 }) {
     const [{ marginLeft, time }, setState] = useState(() => ({
@@ -207,10 +215,7 @@ function Point({
         time: clock.getCurrentTime(),
     }))
     useEffect(() => {
-        const realState: State = {
-            value: 0,
-            directionInverted: false,
-        }
+        const realState = new ContinousState(0, false)
         const ref = window.setInterval(() => {
             const realStateTime = clock.getCurrentTime()
             const entry = universe.history[universe.history.length - 1]
@@ -250,7 +255,7 @@ type SmoothState = {
 function applySmoothing(
     smoothState: SmoothState,
     smoothStateTime: number,
-    realState: State,
+    realState: ContinousState,
     realStateTime: number
 ): void {
     const deltaTime = realStateTime - smoothStateTime

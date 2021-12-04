@@ -1,25 +1,22 @@
-import { Clock } from "."
+import { State } from "."
 
-export class Universe<S, A> {
-    public readonly history: Array<HistoryEntry<S, A>> = []
+type GetAction<S extends State<unknown>> = S extends State<infer A> ? A : never
 
-    private readonly baseHelper1 = {} as S
-    private readonly baseHelper2 = {} as S
+export class Universe<S extends State<unknown>> {
+    public readonly history: Array<HistoryEntry<S, GetAction<S>>> = []
+
+    private readonly baseHelper1: S
+    private readonly baseHelper2: S
 
     constructor(
-        private readonly fixResult: (
-            base: S | undefined,
-            deltaTime: number,
-            action: A | undefined,
-            cachedDeltaTime: number | undefined,
-            cachedBase: S | undefined,
-            cachedResult: S
-        ) => void,
-        private readonly compareAction: (a1: A, a2: A) => number,
-        private readonly copyState: (from: S, to: S) => void,
+        private readonly createStore: () => S,
+        private readonly compareAction: (a1: GetAction<S>, a2: GetAction<S>) => number,
         private readonly historyDuration: number,
         private readonly onChange?: () => void
-    ) {}
+    ) {
+        this.baseHelper1 = createStore()
+        this.baseHelper2 = createStore()
+    }
 
     private removeOldElements(currentTime: number): void {
         let i = 0
@@ -32,7 +29,7 @@ export class Universe<S, A> {
     /**
      * @returns false if the action is already included in the history
      */
-    insert(action: A, currentTime: number, time?: number, result?: S): boolean {
+    insert(action: GetAction<S>, currentTime: number, time?: number, result?: S): boolean {
         this.removeOldElements(currentTime)
 
         if (time == null) {
@@ -58,8 +55,8 @@ export class Universe<S, A> {
         }
 
         if (result == null) {
-            result = {} as S
-            this.fixResult(base, deltaTime, action, undefined, undefined, result)
+            result = this.createStore()
+            result.update(base, deltaTime, action, undefined, undefined)
         }
 
         this.history.splice(indexToInsertAfter + 1, 0, {
@@ -78,14 +75,13 @@ export class Universe<S, A> {
             const currentEntry = this.history[index + 1]
             const deltaTime = currentEntry.time - prevEntry.time
             const nextOldPrevResult = this.baseHelper1 === oldPrevResult ? this.baseHelper2 : this.baseHelper1
-            this.copyState(currentEntry.result, nextOldPrevResult)
-            this.fixResult(
+            nextOldPrevResult.copyFrom(currentEntry.result)
+            currentEntry.result.update(
                 prevEntry.result,
                 deltaTime,
                 currentEntry.action,
                 currentEntry.deltaTime,
-                oldPrevResult,
-                currentEntry.result
+                oldPrevResult
             )
             this.recalculateAfter(index + 1, nextOldPrevResult)
         } else {
@@ -96,7 +92,7 @@ export class Universe<S, A> {
     /**
      * @returns the index (>0); -1 when the action is already in the history; -2 when the action is too old to insert
      */
-    private findEntryIndexBefore(time: number, action?: A): number {
+    private findEntryIndexBefore(time: number, action?: GetAction<S>): number {
         for (let i = this.history.length - 1; i >= 0; i--) {
             const historyEntry = this.history[i]
             if (historyEntry.time <= time) {
@@ -114,15 +110,15 @@ export class Universe<S, A> {
         return -2
     }
 
-    public applyStateAt(ref: S, historyEntry: HistoryEntry<S, A>, time: number): void {
+    public applyStateAt(store: S, historyEntry: HistoryEntry<S, GetAction<S>>, time: number): void {
         if (time < historyEntry.time) {
             throw "can't extrapolate state into the past"
         }
-        this.fixResult(historyEntry.result, time - historyEntry.time, undefined, undefined, undefined, ref)
+        store.update(historyEntry.result, time - historyEntry.time, undefined, undefined, undefined)
     }
 
-    applyCurrentState(ref: S, currentTime: number): void {
-        this.applyStateAt(ref, this.history[this.history.length - 1], currentTime)
+    applyCurrentState(store: S, currentTime: number): void {
+        this.applyStateAt(store, this.history[this.history.length - 1], currentTime)
     }
 }
 
