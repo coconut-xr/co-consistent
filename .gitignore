@@ -1,4 +1,5 @@
 /node_modules/
 /dist/*
 !/dist/.npmrc
+/.nyc_output
 /package-lock.json
