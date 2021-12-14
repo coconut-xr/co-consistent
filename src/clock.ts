@@ -87,7 +87,8 @@ export class Clock {
      */
     wait(time: number): Promise<void> {
         return new Promise((resolve) => {
-            this.beforeChange(this.getRealTimePassed(this.getRealTime()))
+            const realTimePassed = this.getRealTimePassed(this.getRealTime())
+            this.beforeChange(realTimePassed)
             const callback = () => {
                 this.waitSet.delete(entry)
                 resolve()
@@ -96,15 +97,18 @@ export class Clock {
                 timeoutRef: this.createWaitTimeout(callback, time),
                 callback,
                 waitTime: time,
-                startTime: this.getCurrentTime(),
+                startTime: this.computeCurrentTime(realTimePassed),
             }
             this.waitSet.add(entry)
         })
     }
 
-    getCurrentTime(): number {
-        const realTimePassed = this.getRealTimePassed(this.getRealTime())
+    private computeCurrentTime(realTimePassed: number): number {
         return this.computeStateTime(realTimePassed, this.getPassedChangePeriod(realTimePassed))
+    }
+
+    getCurrentTime(): number {
+        return this.computeCurrentTime(this.getRealTimePassed(this.getRealTime()))
     }
 
     /**
@@ -117,8 +121,10 @@ export class Clock {
             throw "can't jump backwards in state time"
         }
         const timePassed = this.getRealTimePassed(this.getRealTime())
-        this.beforeChange(timePassed)
+        //shift the state time
         this.stateTime += by
+        this.beforeChange(timePassed)
+        //do nothing in here (beforeChange & afterChange will just fix the wait entries)
         this.afterChange()
     }
 
