@@ -62,7 +62,6 @@ export class Clock {
         } else {
             result = waitTime / velocityWithChange
         }
-        console.log("calculateRealTimeLeftTo", waitTime, result)
         return result
     }
 
@@ -81,11 +80,6 @@ export class Clock {
         this.changePerRealTime = offset < 0 ? -Math.abs(changeRate) : Math.abs(changeRate)
         this.changePeriodRealTime = offset / this.changePerRealTime
         this.afterChange()
-    }
-
-    getRestChange(): number {
-        const passedRealTimeChangePeriod = this.getPassedChangePeriod(this.getRealTimePassed(this.getRealTime()))
-        return (this.changePeriodRealTime - passedRealTimeChangePeriod) * this.changePerRealTime
     }
 
     /**
