@@ -1,61 +1,14 @@
-import { Universe, Clock, HistoryEntry, State } from "co-consistent"
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { Observable, Subject } from "rxjs"
-import { delay, filter, tap } from "rxjs/operators"
-import { Footer } from "../components/footer"
-import { Header } from "../components/header"
-import MD from "../content/continous.md"
+----
 
-export default function Index() {
-    return (
-        <div className="d-flex flex-column fullscreen">
-            <Header selectedIndex={2} />
-            <div className="d-flex flex-column justify-content-stretch container-lg">
-                <div className="d-flex flex-row-responsive">
-                    <Continous />
-                </div>
-                <MD />
-                <div className="p-3 flex-basis-0 flex-grow-1"></div>
-            </div>
-            <Footer />
-        </div>
-    )
-} //<MD />
+**extrapolate state for representing the continous position of a ball**
 
-export function Continous() {
-    const subject = useMemo(() => new Subject<Event>(), [])
-    const clients = useMemo(
-        () =>
-            new Array(4).fill(null).map((_, i) => {
-                const clientId = `#${i}`
-                return (
-                    <Client
-                        key={i}
-                        clientId={clientId}
-                        timeOffset={0}
-                        //timeVelocity={1}
-                        incommingMessageDelay={1000 + Math.random() * 1000}
-                        receiveObservable={subject.pipe(filter((e) => e.clientId !== clientId))}
-                        sendSubject={subject}
-                    />
-                )
-            }),
-        [subject]
-    )
-    return (
-        <div
-            style={{
-                fontFamily: "arial",
-                display: "flex",
-                flexWrap: "wrap",
-                flexDirection: "row",
-                justifyContent: "space-around",
-            }}>
-            {clients}
-        </div>
-    )
-}
+The clients can all invert the direction of the ball. The state is extrapolated and recalculated by inverting the direction in the past and extrapolating in the future.
 
+# Source Code
+
+[`continous.tsx`](https://github.com/cocoss-org/co-consistent/blob/main/examples/pages/continous.tsx)
+
+```typescript
 type Event = {
     clientId: string
     stateTime: number
@@ -100,7 +53,7 @@ class ContinousState implements State<Action> {
     }
 }
 
-export function Client({
+export function View({
     clientId,
     sendSubject,
     receiveObservable,
@@ -216,10 +169,7 @@ export function Client({
             <div style={{ height: 100, overflowY: "auto" }} className="border p-2 d-flex flex-column">
                 {history.map((entry, index) => {
                     return (
-                        <div
-                            className="py-2 border-bottom"
-                            style={{ display: "flex", flexDirection: "column" }}
-                            key={index}>
+                        <div className="py-2 border-bottom" style={{ display: "flex", flexDirection: "column" }} key={index}>
                             <span>action id: {entry.action.id.toFixed(3)}</span>
                             <span>time: {entry.time.toFixed(0)}</span>
                             <span>value: {entry.result.value?.toFixed(2)}</span>
@@ -303,3 +253,4 @@ function applySmoothing(
 function limitAbs(value: number, limit: number): number {
     return Math.max(-limit, Math.min(limit, value))
 }
+```

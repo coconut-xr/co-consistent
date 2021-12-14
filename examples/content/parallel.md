@@ -1,61 +1,16 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { Universe, HistoryEntry, Clock, State } from "co-consistent"
-import { Observable, Subject } from "rxjs"
-import { delay, filter } from "rxjs/operators"
-import { Footer } from "../components/footer"
-import { Header } from "../components/header"
-import MD from "../content/state.md"
+----
 
-export default function Index() {
-    return (
-        <div className="d-flex flex-column fullscreen">
-            <Header selectedIndex={0} />
-            <div className="d-flex flex-column justify-content-stretch container-lg">
-                <div className="d-flex flex-row-responsive">
-                    <StateExamplePage />
-                </div>
-                <MD />
-                <div className="p-3 flex-basis-0 flex-grow-1"></div>
-            </div>
-            <Footer />
-        </div>
-    )
-} //<MD />
+**edit states in parallel without touching the other**
 
-function StateExamplePage() {
-    const subject = useMemo(() => new Subject<Event>(), [])
-    const clients = useMemo(
-        () =>
-            new Array(4).fill(null).map((_, i) => {
-                const clientId = `#${i}`
-                return (
-                    <Client
-                        key={i}
-                        clientId={clientId}
-                        timeOffset={Math.floor(Math.random() * 1000)}
-                        receiveObservable={subject.pipe(
-                            filter((e) => e.clientId !== clientId),
-                            delay(500 + Math.random() * 500)
-                        )}
-                        sendSubject={subject}
-                    />
-                )
-            }),
-        [subject]
-    )
-    return (
-        <div
-            style={{
-                flexWrap: "wrap",
-                fontFamily: "arial",
-                display: "flex",
-                flexDirection: "row",
-                justifyContent: "space-around",
-            }}>
-            {clients}
-        </div>
-    )
-}
+The actions are delayed with an *incomming message delay*.  
+When building a complex state that has to be calculated very often, efficiency is important.  
+This example shows how to develop a state that only re-computes the part of the state that has to change due to the received action.
+
+# Source Code
+
+[`parallel.tsx`](https://github.com/cocoss-org/co-consistent/blob/main/examples/pages/parallel.tsx)
+
+```typescript
 
 type Event = {
     action: Action
@@ -67,8 +22,8 @@ function reduce(events: Array<Event>, event: Event): Array<Event> {
     return [...events, event]
 }
 
-class ValueState implements State<Action> {
-    constructor(public value: number) {}
+class ParallelState implements State<Action> {
+    constructor(public x: number, public y: number) {}
 
     update(
         base: this | undefined,
@@ -77,32 +32,34 @@ class ValueState implements State<Action> {
         prevDeltaTime: number | undefined,
         prevBase: this | undefined
     ): void {
-        if (base == null || action?.type === "init") {
+        if (action?.type === "init" || base == null) {
             return
         }
         if (action == null) {
-            this.value = base.value
+            this.x = base.x
+            this.y = base.y
             return
         }
-        if (base.value !== prevBase?.value) {
-            if (action.type === "*2") {
-                this.value = base.value * 2
-            } else {
-                this.value = base.value + 2
-            }
+        if (base.x !== prevBase?.x) {
+            this.x = action.type === "x++" ? base.x + 1 : base.x
+        }
+        if (base.y !== prevBase?.y) {
+            this.y = action.type === "y++" ? base.y + 1 : base.y
         }
     }
+
     copyFrom(ref: this): void {
-        this.value = ref.value
+        this.x = ref.x
+        this.y = ref.y
     }
 }
 
 type Action = {
-    type: "+2" | "*2" | "init"
+    type: "x++" | "y++" | "init"
     id: number
 }
 
-export function Client({
+export function View({
     timeOffset,
     clientId,
     sendSubject,
@@ -114,22 +71,24 @@ export function Client({
     receiveObservable: Observable<Event>
 }) {
     const [events, addEventToList] = useReducer(reduce, [])
-    const [history, setHistory] = useState<Array<HistoryEntry<ValueState, Action>>>([])
-    const [result, setResult] = useState(0)
+    const [history, setHistory] = useState<Array<HistoryEntry<ParallelState, Action>>>([])
+    const [x, setX] = useState(0)
+    const [y, setY] = useState(0)
     const clock = useMemo(
         () => new Clock(timeOffset, () => (global.window == null ? 0 : window.performance.now())),
         [timeOffset]
     )
     const universe = useMemo(() => {
-        const ref = new ValueState(0)
+        const ref = new ParallelState(0, 0)
         const universe = new Universe(
-            () => new ValueState(0),
+            () => new ParallelState(0, 0),
             (a1, a2) => a1.id - a2.id,
             2000,
             () => {
                 universe.applyCurrentState(ref, clock.getCurrentTime())
                 setHistory([...universe.history])
-                setResult(ref.value)
+                setX(ref.x)
+                setY(ref.y)
             }
         )
         universe.insert(
@@ -139,21 +98,27 @@ export function Client({
             },
             clock.getCurrentTime(),
             0,
-            new ValueState(0)
+            new ParallelState(0, 0)
         )
         universe.applyCurrentState(ref, clock.getCurrentTime())
-        setResult(ref.value)
+        setX(ref.x)
+        setY(ref.y)
         return universe
-    }, [setResult, timeOffset, setHistory, clock])
+    }, [clock, setX, setY, timeOffset, setHistory])
     const addEvent = useCallback(
         (event: Event) => {
             addEventToList(event)
-            universe.insert(event.action, event.time)
+            let currentTime = clock.getCurrentTime()
+            if (event.time > currentTime) {
+                clock.jump(event.time - currentTime)
+                currentTime = clock.getCurrentTime()
+            }
+            universe.insert(event.action, currentTime, event.time)
         },
-        [addEventToList, universe]
+        [addEventToList, universe, clock]
     )
     const createLocalEvent = useCallback(
-        (actionType: "*2" | "+2") => {
+        (actionType: "x++" | "y++") => {
             const event: Event = {
                 clientId,
                 time: clock.getCurrentTime(),
@@ -165,7 +130,7 @@ export function Client({
             addEvent(event)
             sendSubject.next(event)
         },
-        [clock, clientId, universe, sendSubject, addEvent]
+        [clientId, clock, sendSubject, addEvent]
     )
     useEffect(() => {
         const subscription = receiveObservable.subscribe(addEvent)
@@ -180,16 +145,14 @@ export function Client({
             <button
                 className="btn btn-outline-primary"
                 style={{ padding: "1rem", marginRight: "1rem" }}
-                onClick={() => createLocalEvent("+2")}>
-                +2
+                onClick={() => createLocalEvent("x++")}>
+                x++
             </button>
-            <button
-                className="btn btn-outline-primary"
-                style={{ padding: "1rem" }}
-                onClick={() => createLocalEvent("*2")}>
-                *2
+            <button className="btn btn-outline-primary" style={{ padding: "1rem" }} onClick={() => createLocalEvent("y++")}>
+                y++
             </button>
-            <h2 className="mt-3">Result: {result}</h2>
+            <h2 className="mt-3">X: {x}</h2>
+            <h2 className="mb-3">Y: {y}</h2>
             <h2 className="mt-3">Events in received order</h2>
             <div style={{ maxHeight: 200, overflowY: "auto" }}>
                 {events.map(({ clientId, time, action }, i) => (
@@ -202,14 +165,13 @@ export function Client({
                 ))}
             </div>
             <h2 className="mt-3">Established History</h2>
-
             <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                {history.map(({ result, time, action }, i) => {
+                {history.map(({ time, result }, i) => {
                     return (
                         <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                            <span>{action.type}</span>
-                            <span>action id: {action.id}</span>
-                            <span>result: {result.value}</span>
+                            <span>
+                                result: x: {result.x}, y: {result.y}
+                            </span>
                             <span>State Time: {time}</span>
                         </div>
                     )
@@ -218,3 +180,4 @@ export function Client({
         </div>
     )
 }
+```

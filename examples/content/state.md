@@ -1,61 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useState } from "react"
-import { Universe, HistoryEntry, Clock, State } from "co-consistent"
-import { Observable, Subject } from "rxjs"
-import { delay, filter } from "rxjs/operators"
-import { Footer } from "../components/footer"
-import { Header } from "../components/header"
-import MD from "../content/state.md"
+----
 
-export default function Index() {
-    return (
-        <div className="d-flex flex-column fullscreen">
-            <Header selectedIndex={0} />
-            <div className="d-flex flex-column justify-content-stretch container-lg">
-                <div className="d-flex flex-row-responsive">
-                    <StateExamplePage />
-                </div>
-                <MD />
-                <div className="p-3 flex-basis-0 flex-grow-1"></div>
-            </div>
-            <Footer />
-        </div>
-    )
-} //<MD />
+**simple example with multiplication and addition**
 
-function StateExamplePage() {
-    const subject = useMemo(() => new Subject<Event>(), [])
-    const clients = useMemo(
-        () =>
-            new Array(4).fill(null).map((_, i) => {
-                const clientId = `#${i}`
-                return (
-                    <Client
-                        key={i}
-                        clientId={clientId}
-                        timeOffset={Math.floor(Math.random() * 1000)}
-                        receiveObservable={subject.pipe(
-                            filter((e) => e.clientId !== clientId),
-                            delay(500 + Math.random() * 500)
-                        )}
-                        sendSubject={subject}
-                    />
-                )
-            }),
-        [subject]
-    )
-    return (
-        <div
-            style={{
-                flexWrap: "wrap",
-                fontFamily: "arial",
-                display: "flex",
-                flexDirection: "row",
-                justifyContent: "space-around",
-            }}>
-            {clients}
-        </div>
-    )
-}
+The actions are delayed with an *incomming message delay*.  
+If a client executes an additional while another an multiplication and global consistent order has to be established to get the same result across clients since addition and multiplication is not commutative.
+
+# Source Code
+
+[`state.tsx`](https://github.com/cocoss-org/co-consistent/blob/main/examples/pages/state.tsx)
+
+```typescript
 
 type Event = {
     action: Action
@@ -102,7 +56,7 @@ type Action = {
     id: number
 }
 
-export function Client({
+export function View({
     timeOffset,
     clientId,
     sendSubject,
@@ -218,3 +172,4 @@ export function Client({
         </div>
     )
 }
+```

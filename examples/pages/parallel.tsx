@@ -4,23 +4,25 @@ import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
 import { Header } from "../components/header"
 import { Footer } from "../components/footer"
+import MD from "../content/parallel.md"
 
 export default function Index() {
     return (
         <div className="d-flex flex-column fullscreen">
-            <Header selectedIndex={7} />
+            <Header selectedIndex={1} />
             <div className="d-flex flex-column justify-content-stretch container-lg">
                 <div className="d-flex flex-row-responsive">
-                    <ParallelExamplePage />
+                    <Parallel />
                 </div>
+                <MD />
                 <div className="p-3 flex-basis-0 flex-grow-1"></div>
             </div>
             <Footer />
         </div>
     )
-} //<MD />
+}
 
-function ParallelExamplePage() {
+function Parallel() {
     const subject = useMemo(() => new Subject<Event>(), [])
     const clients = useMemo(
         () =>

@@ -16,14 +16,14 @@ globally consistent event ordering for decentralized distributed systems
 ## **Why?**
 
 Synchronizing action ordering across multiple clients in a network can be done in various ways. **co-consistent** uses a shared timeline to order events and a clock that can jump forward in time.  
-Other concepts relay on a heavy server to order actions and compute state.  
+Other concepts rely on a heavy server to order actions and compute state.  
 **co-consistent** offloads this work to the clients and is designed for a peer-to-peer scenario but can also be used in a client-server architecture.
 
 ## [**Examples**](https://cocoss-org.github.io/co-consistent)
 
 _The code for each example can be found on the respective pages_
 
--   [State](https://cocoss-org.github.io/co-consistent/state) - simple example with multiplication and division
+-   [State](https://cocoss-org.github.io/co-consistent/state) - simple example with multiplication and addition
 -   [Parallel](https://cocoss-org.github.io/co-consistent/parallel) - edit states in parallel without touching the other
 -   [Continous](https://cocoss-org.github.io/co-consistent/continous) - extrapolate state for representing the continous position of a ball
 
