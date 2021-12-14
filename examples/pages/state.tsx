@@ -2,12 +2,29 @@ import React, { useCallback, useEffect, useMemo, useReducer, useState } from "re
 import { Universe, HistoryEntry, Clock, State } from "co-consistent"
 import { Observable, Subject } from "rxjs"
 import { delay, filter } from "rxjs/operators"
+import { Footer } from "../components/footer"
+import { Header } from "../components/header"
 
 export default function Index() {
+    return (
+        <div className="d-flex flex-column fullscreen">
+            <Header selectedIndex={7} />
+            <div className="d-flex flex-column justify-content-stretch container-lg">
+                <div className="d-flex flex-row-responsive">
+                    <StateExamplePage />
+                </div>
+                <div className="p-3 flex-basis-0 flex-grow-1"></div>
+            </div>
+            <Footer />
+        </div>
+    )
+} //<MD />
+
+function StateExamplePage() {
     const subject = useMemo(() => new Subject<Event>(), [])
     const clients = useMemo(
         () =>
-            new Array(5).fill(null).map((_, i) => {
+            new Array(4).fill(null).map((_, i) => {
                 const clientId = `#${i}`
                 return (
                     <Client
@@ -25,7 +42,14 @@ export default function Index() {
         [subject]
     )
     return (
-        <div style={{ fontFamily: "arial", display: "flex", flexDirection: "row", justifyContent: "space-around" }}>
+        <div
+            style={{
+                flexWrap: "wrap",
+                fontFamily: "arial",
+                display: "flex",
+                flexDirection: "row",
+                justifyContent: "space-around",
+            }}>
             {clients}
         </div>
     )
@@ -146,38 +170,49 @@ export function Client({
         return () => subscription.unsubscribe()
     }, [addEvent, clientId])
     return (
-        <div style={{ flexBasis: 0, flexGrow: 1, margin: "3rem" }}>
+        <div className="m-3" style={{ flexGrow: 1 }}>
             <h1>Client {clientId}</h1>
             <span>Time Offset: {timeOffset}</span>
             <br />
             <br />
-            <button style={{ padding: "1rem", marginRight: "1rem" }} onClick={() => createLocalEvent("+2")}>
+            <button
+                className="btn btn-outline-primary"
+                style={{ padding: "1rem", marginRight: "1rem" }}
+                onClick={() => createLocalEvent("+2")}>
                 +2
             </button>
-            <button style={{ padding: "1rem" }} onClick={() => createLocalEvent("*2")}>
+            <button
+                className="btn btn-outline-primary"
+                style={{ padding: "1rem" }}
+                onClick={() => createLocalEvent("*2")}>
                 *2
             </button>
-            <h2>Events in received order</h2>
-            {events.map(({ clientId, time, action }, i) => (
-                <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
-                    <span>{action.type}</span>
-                    <span>action id: {action.id}</span>
-                    <span>Client Id: {clientId}</span>
-                    <span>State Time: {time}</span>
-                </div>
-            ))}
-            <h2>Established History</h2>
-            {history.map(({ result, time, action }, i) => {
-                return (
+            <h2 className="mt-3">Result: {result}</h2>
+            <h2 className="mt-3">Events in received order</h2>
+            <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                {events.map(({ clientId, time, action }, i) => (
                     <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
                         <span>{action.type}</span>
                         <span>action id: {action.id}</span>
-                        <span>result: {result.value}</span>
+                        <span>Client Id: {clientId}</span>
                         <span>State Time: {time}</span>
                     </div>
-                )
-            })}
-            <h2>Result: {result}</h2>
+                ))}
+            </div>
+            <h2 className="mt-3">Established History</h2>
+
+            <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                {history.map(({ result, time, action }, i) => {
+                    return (
+                        <div key={i} style={{ marginBottom: "2rem", display: "flex", flexDirection: "column" }}>
+                            <span>{action.type}</span>
+                            <span>action id: {action.id}</span>
+                            <span>result: {result.value}</span>
+                            <span>State Time: {time}</span>
+                        </div>
+                    )
+                })}
+            </div>
         </div>
     )
 }

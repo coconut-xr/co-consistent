@@ -1,4 +1,4 @@
-//import "../styles/index.scss";
+import "../styles/index.scss";
 import type { AppProps /*, AppContext */ } from "next/app";
 import React, { PropsWithChildren } from "react";
 

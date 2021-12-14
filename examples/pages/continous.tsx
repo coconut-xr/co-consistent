@@ -2,12 +2,29 @@ import { Universe, Clock, HistoryEntry, State } from "co-consistent"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Observable, Subject } from "rxjs"
 import { delay, filter, tap } from "rxjs/operators"
+import { Footer } from "../components/footer"
+import { Header } from "../components/header"
 
-export default function Continous() {
+export default function Index() {
+    return (
+        <div className="d-flex flex-column fullscreen">
+            <Header selectedIndex={7} />
+            <div className="d-flex flex-column justify-content-stretch container-lg">
+                <div className="d-flex flex-row-responsive">
+                    <Continous />
+                </div>
+                <div className="p-3 flex-basis-0 flex-grow-1"></div>
+            </div>
+            <Footer />
+        </div>
+    )
+} //<MD />
+
+export function Continous() {
     const subject = useMemo(() => new Subject<Event>(), [])
     const clients = useMemo(
         () =>
-            new Array(5).fill(null).map((_, i) => {
+            new Array(4).fill(null).map((_, i) => {
                 const clientId = `#${i}`
                 return (
                     <Client
@@ -24,7 +41,14 @@ export default function Continous() {
         [subject]
     )
     return (
-        <div style={{ fontFamily: "arial", display: "flex", flexDirection: "row", justifyContent: "space-around" }}>
+        <div
+            style={{
+                fontFamily: "arial",
+                display: "flex",
+                flexWrap: "wrap",
+                flexDirection: "row",
+                justifyContent: "space-around",
+            }}>
             {clients}
         </div>
     )
@@ -175,7 +199,6 @@ export function Client({
     return (
         <div
             style={{
-                flexBasis: 0,
                 display: "flex",
                 flexDirection: "column",
                 margin: "1rem",
@@ -188,15 +211,17 @@ export function Client({
             <button onClick={() => createLocalEvent()}>invert</button>
             <span>Time offset: {timeOffset}</span>
             <span>Incomming message delay: {incommingMessageDelay.toFixed(0)}</span>
-            {history.map((entry, index) => {
-                return (
-                    <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column" }} key={index}>
-                        <span>action id: {entry.action.id.toFixed(3)}</span>
-                        <span>time: {entry.time.toFixed(0)}</span>
-                        <span>value: {entry.result.value?.toFixed(2)}</span>
-                    </div>
-                )
-            })}
+            <div style={{ height: 100, overflowY: "auto" }} className="border p-2 d-flex flex-column">
+                {history.map((entry, index) => {
+                    return (
+                        <div className="py-2 border-bottom" style={{ display: "flex", flexDirection: "column" }} key={index}>
+                            <span>action id: {entry.action.id.toFixed(3)}</span>
+                            <span>time: {entry.time.toFixed(0)}</span>
+                            <span>value: {entry.result.value?.toFixed(2)}</span>
+                        </div>
+                    )
+                })}
+            </div>
         </div>
     )
 }
