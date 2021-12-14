@@ -49,7 +49,7 @@ export class Clock {
     }
 
     private createWaitTimeout(callback: WaitEntry["callback"], waitTime: WaitEntry["waitTime"]): NodeJS.Timeout {
-        return setTimeout(callback, Math.max(0, this.calculateRealTimeLeftTo(waitTime)))
+        return setTimeout(callback, Math.max(0, Math.ceil(this.calculateRealTimeLeftTo(waitTime))))
     }
 
     private calculateRealTimeLeftTo(waitTime: number): number {
